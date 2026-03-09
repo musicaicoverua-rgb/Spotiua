@@ -17,6 +17,21 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
+    - name: Fix Kotlin Conflict
+      run: |
+        mkdir -p ~/.gradle
+        cat << 'EOF' > ~/.gradle/init.gradle
+        allprojects {
+            configurations.all {
+                resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+                    if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {
+                        details.useVersion '1.8.22'
+                    }
+                }
+            }
+        }
+        EOF
+
     - name: Run Kimi Commands
       run: |
         unzip "Kimi_Agent_OpenWave Admin Email Config.zip"
