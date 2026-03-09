@@ -46,3 +46,68 @@ jobs:
         name: my-android-app
         path: '**/*.apk'
         
+  const uploadTrack = useCallback(async (
+    file: File,
+    coverFile: File | null,
+    metadata: { title: string; artist: string }
+  ) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    // 1. ПЕРЕВІРКА НА АДМІНІСТРАТОРА (тільки ваш email)
+    const ADMIN_EMAIL = 'andriimykolyshyn@gmail.com' 
+    if (user.email !== ADMIN_EMAIL) {
+      throw new Error('Тільки адміністратор може завантажувати треки')
+    }
+
+    // Процес завантаження аудіо...
+    const audioExt = file.name.split('.').pop()
+    const audioFileName = `${user.id}-${Date.now()}.${audioExt}`
+    const { error: audioError } = await supabase.storage
+      .from('music-files')
+      .upload(audioFileName, file)
+    if (audioError) throw audioError
+
+    const { data: { publicUrl: audioUrl } } = supabase.storage
+      .from('music-files')
+      .getPublicUrl(audioFileName)
+
+    // Процес завантаження обкладинки...
+    let coverUrl = null
+    if (coverFile) {
+      const coverExt = coverFile.name.split('.').pop()
+      const coverFileName = `${user.id}-${Date.now()}-cover.${coverExt}`
+      const { error: coverError } = await supabase.storage
+        .from('covers')
+        .upload(coverFileName, coverFile)
+      if (!coverError) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('covers')
+          .getPublicUrl(coverFileName)
+        coverUrl = publicUrl
+      }
+    }
+
+    // Створення запису в базі даних...
+    const { data, error } = await supabase
+      .from('tracks')
+      .insert({
+        title: metadata.title,
+        artist: metadata.artist,
+        audio_url: audioUrl,
+        cover_url: coverUrl,
+        user_id: user.id,
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+
+    // 2. ОНОВЛЕННЯ СТОРІНКИ (щоб трек з'явився у списку)
+    setTimeout(() => {
+      window.location.href = '/'
+    }, 1500)
+
+    return data
+  }, [])
+  
