@@ -22,21 +22,30 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: STEP 1 - Unpack & Clean
+    - name: STEP 1 - Unpack & Sterilize
       run: |
         unzip -q -o "Kimi_Agent_OpenWave Native Music App.zip"
         # Знаходимо шлях до папки android
         AND_DIR=$(find . -name "build.gradle.kts" | grep "android/app" | sed 's/\/app\/build.gradle.kts//')
         echo "ANDROID_PROJECT_DIR=$AND_DIR" >> $GITHUB_ENV
-        # Очищаємо старий код
+        
+        # Очищаємо код та ресурси від старого сміття
         rm -rf $AND_DIR/app/src/main/java/*
+        rm -rf $AND_DIR/app/src/main/res/values/*
+        rm -rf $AND_DIR/app/src/main/res/drawable/*
         mkdir -p $AND_DIR/app/src/main/java/com/openwave/app
+        mkdir -p $AND_DIR/app/src/main/res/values
+        mkdir -p $AND_DIR/app/src/main/res/drawable
+        mkdir -p $AND_DIR/app/src/main/res/xml
 
-    - name: STEP 2 - Inject Dependencies & Code
+    - name: STEP 2 - Fix Build Configuration
       run: |
         AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
-        # Налаштування Gradle
-        sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' $AND_DIR/settings.gradle.kts || true
+        # Налаштовуємо правильний namespace та вмикаємо Compose
+        sed -i 's/namespace = .*/namespace = "com.openwave.app"/' $AND_DIR/app/build.gradle.kts
+        sed -i 's/applicationId = .*/applicationId = "com.openwave.app"/' $AND_DIR/app/build.gradle.kts
+        
+        # Додаємо необхідні залежності
         cat << 'EOF' >> $AND_DIR/app/build.gradle.kts
         dependencies {
             implementation("androidx.media3:media3-exoplayer:1.3.1")
@@ -50,7 +59,45 @@ jobs:
         }
         EOF
 
-        # Генерація MainActivity.kt
+    - name: STEP 3 - Generate Manifest & Resources
+      run: |
+        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
+        RES=$AND_DIR/app/src/main/res
+        
+        # Створюємо чистий Маніфест з правами на аудіо
+        cat << 'EOF' > $AND_DIR/app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+            <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+            <application
+                android:allowBackup="true"
+                android:label="OpenWave"
+                android:icon="@drawable/ic_launcher"
+                android:theme="@style/Theme.OpenWave"
+                android:usesCleartextTraffic="true">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        # Створюємо базову тему та іконку
+        echo '<resources><string name="app_name">OpenWave</string><style name="Theme.OpenWave" parent="android:Theme.Material3.Dark.NoActionBar"/></resources>' > $RES/values/strings.xml
+        echo '<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF1DB954" android:pathData="M12,2L2,22h20L12,2z"/></vector>' > $RES/drawable/ic_launcher.xml
+        echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > $RES/xml/data_extraction_rules.xml
+        echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content/>' > $RES/xml/backup_rules.xml
+
+    - name: STEP 4 - Generate MainActivity.kt (Admin Upload Feature)
+      run: |
+        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
         cat << 'EOF' > $AND_DIR/app/src/main/java/com/openwave/app/MainActivity.kt
         package com.openwave.app
         import android.net.Uri
@@ -103,7 +150,7 @@ jobs:
             var show by remember { mutableStateOf(false) }
             val ctx = LocalContext.current
             Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("OpenWave Cloud ☁️", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+                Text("OpenWave Cloud", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(48.dp))
                 if (!show) {
                     Button(onClick = onUsr, Modifier.fillMaxWidth().height(50.dp)) { Text("Слухач") }
@@ -149,8 +196,13 @@ jobs:
                         try {
                             val b = ctx.contentResolver.openInputStream(it)?.readBytes()
                             if (b != null) supabase.storage.from("tracks").upload(fn, b)
-                            withContext(Dispatchers.Main) { load() }
-                        } catch (e: Exception) {} finally { withContext(Dispatchers.Main) { upld = false } }
+                            withContext(Dispatchers.Main) { 
+                                Toast.makeText(ctx, "Успішно завантажено!", Toast.LENGTH_SHORT).show()
+                                load() 
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) { Toast.makeText(ctx, "Помилка завантаження", Toast.LENGTH_SHORT).show() }
+                        } finally { withContext(Dispatchers.Main) { upld = false } }
                     }
                 }
             }
@@ -161,7 +213,10 @@ jobs:
                     TextButton(onClick = { exo.stop(); onOut() }) { Text("Вихід", color = MaterialTheme.colorScheme.error) }
                 }
                 if (isAdmin) {
-                    Button(onClick = { pick.launch("audio/*") }, Modifier.fillMaxWidth(), enabled = !upld) { Text(if (upld) "Завантаження..." else "➕ Додати MP3") }
+                    Button(onClick = { pick.launch("audio/*") }, Modifier.fillMaxWidth().height(55.dp), enabled = !upld) { 
+                        Text(if (upld) "Завантаження в Хмару..." else "➕ Додати MP3") 
+                    }
+                    Spacer(Modifier.height(16.dp))
                 }
                 LazyColumn(Modifier.weight(1f)) {
                     items(trks) { t ->
@@ -169,29 +224,31 @@ jobs:
                             trkName = t.title
                             exo.setMediaItem(MediaItem.fromUri(t.url))
                             exo.prepare(); exo.play()
-                        }) { Text(t.title, Modifier.padding(16.dp)) }
+                        }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                            Text(text = "☁️ " + t.title, Modifier.padding(16.dp))
+                        }
                     }
                 }
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                     Row(Modifier.padding(16.dp).fillMaxWidth(), Alignment.CenterVertically, Arrangement.SpaceBetween) {
                         Text(trkName, Modifier.weight(1f), maxLines = 1)
-                        Button(onClick = { if (play) exo.pause() else exo.play() }) { Text(if (play) "||" else ">") }
+                        Button(onClick = { if (play) exo.pause() else exo.play() }) { Text(if (play) "Pause" else "Play") }
                     }
                 }
             }
         }
         EOF
 
-    - name: STEP 3 - Build APK
+    - name: STEP 5 - Build APK
       run: |
         AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
         cd $AND_DIR
-        # Надаємо права на запуск gradlew, якщо він є
         GW=$(find . -name "gradlew")
-        if [ -n "$GW" ]; then chmod +x $GW; $GW assembleDebug; else gradle assembleDebug; fi
+        chmod +x $GW
+        $GW assembleDebug
 
-    - name: STEP 4 - Upload APK
+    - name: STEP 6 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Cloud-APK
+        name: OpenWave-Admin-Upload-APK
         path: "**/build/outputs/apk/debug/*.apk"
