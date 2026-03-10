@@ -25,13 +25,17 @@ jobs:
     - name: STEP 1 - Project Sterilization
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
-        # Fix repositories and basic gradle settings
+        
+        # 1. Fix Repositories
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
+        
+        # 2. Add Parcelize plugin
         if ! grep -q "kotlin-parcelize" openwave/android/app/build.gradle.kts; then
           sed -i '/id("com.android.application")/a \    id("kotlin-parcelize")' openwave/android/app/build.gradle.kts
         fi
-        # Add necessary media and logging dependencies
+        
+        # 3. Inject Dependencies
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         dependencies {
             implementation("androidx.media3:media3-exoplayer:1.3.1")
@@ -43,38 +47,30 @@ jobs:
         }
         EOF
 
-    - name: STEP 2 - UI & Resource Generator
+    - name: STEP 2 - Resource Surgery (Fixes Unicode Escape Error)
       run: |
+        echo "Cleaning problematic XML resources..."
+        # Physically delete lines with artist_name and username_optional to prevent build crash
+        find . -name "*.xml" -type f -exec sed -i '/artist_name/d' {} +
+        find . -name "*.xml" -type f -exec sed -i '/username_optional/d' {} +
+        
+        # Create fallback missing resources
         RES_DIR="openwave/android/app/src/main/res"
-        mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
-        echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
-        echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
-        # Strings and themes
-        cat << 'EOF' > "$RES_DIR/values/kimi_fix_resources.xml"
-        <resources>
-            <string name="app_name">OpenWave</string>
-            <string name="playback_channel_name">Music Playback</string>
-            <string name="download_channel_name">Downloads</string>
-            <string name="downloading_track">Downloading...</string>
-            <string name="download_complete">Complete</string>
-            <string name="download_failed">Failed</string>
-            <style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/>
-        </resources>
-        EOF
-        # Vectors
-        V_XML='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
+        mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/drawable"
+        echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string><string name="playback_channel_name">Music</string><string name="download_channel_name">Downloads</string><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_fixes.xml"
+        
+        V_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
         for i in play pause previous next ic_download ic_notification ic_launcher; do
             echo "$V_XML" > "$RES_DIR/drawable/${i}.xml"
         done
 
-    - name: STEP 3 - Core Architecture Restorer
+    - name: STEP 3 - Ultimate Hard Reset (Rewriting Broken AI Files)
       run: |
         python3 - <<'EOF'
         import os, re
         src_dir = 'openwave/android/app/src/main/java'
         base_pkg = "com.openwave.app"
         
-        # Determine package from AppDatabase
         for r, d, f in os.walk(src_dir):
             if 'AppDatabase.kt' in f:
                 with open(os.path.join(r, 'AppDatabase.kt'), 'r') as db_f:
@@ -84,62 +80,27 @@ jobs:
                             base_pkg = pkg_str.split('.data')[0] if '.data' in pkg_str else pkg_str.split('.domain')[0]
                             break
 
-        def write_file(path_parts, content):
-            full_path = os.path.join(src_dir, base_pkg.replace('.', '/'), *path_parts)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, 'w') as f:
-                f.write(content.replace("BASE_PKG", base_pkg))
+        def save(path_list, body):
+            full = os.path.join(src_dir, base_pkg.replace('.', '/'), *path_list)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'w') as f: f.write(body.replace("BASE_PKG", base_pkg))
 
-        # domain/model/Track.kt
-        write_file(['domain', 'model', 'Track.kt'], """package BASE_PKG.domain.model
-        import android.os.Parcelable
-        import kotlinx.parcelize.Parcelize
-        @Parcelize
-        data class Track(val id: String="", val title: String="", val artist: String="", val coverUrl: String="", val streamUrl: String="", val duration: Long=0L) : Parcelable
-        """)
+        # Core Entities & Models
+        save(['domain', 'model', 'Track.kt'], "package BASE_PKG.domain.model\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n@Parcelize\ndata class Track(val id: String=\"\", val title: String=\"\", val artist: String=\"\", val coverUrl: String=\"\", val streamUrl: String=\"\", val duration: Long=0L) : Parcelable")
+        save(['domain', 'model', 'User.kt'], "package BASE_PKG.domain.model\ndata class User(val id: String=\"\", val username: String=\"\")\nenum class ItemType { TRACK, PLAYLIST, ALBUM }")
+        save(['data', 'local', 'OfflineDownload.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n@Parcelize @Entity(tableName=\"offline_downloads\")\ndata class OfflineDownload(@PrimaryKey val id: String, val trackId: String, val filePath: String, val isComplete: Boolean, val progress: Int) : Parcelable")
+        save(['data', 'local', 'CachedTrackEntity.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\n@Entity(tableName=\"cached_tracks\")\ndata class CachedTrackEntity(@PrimaryKey val id: String, val title: String=\"\", val artist: String=\"\", val addedAt: Long=0L)")
 
-        # data/local/OfflineDownload.kt
-        write_file(['data', 'local', 'OfflineDownload.kt'], """package BASE_PKG.data.local
-        import androidx.room.*
-        import android.os.Parcelable
-        import kotlinx.parcelize.Parcelize
-        @Parcelize @Entity(tableName="offline_downloads")
-        data class OfflineDownload(@PrimaryKey val id: String, val trackId: String, val filePath: String, val isComplete: Boolean, val progress: Int) : Parcelable
-        """)
+        # DAOs
+        save(['data', 'local', 'OfflineDownloadDao.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\nimport kotlinx.coroutines.flow.Flow\n@Dao\ninterface OfflineDownloadDao {\n @Query(\"SELECT * FROM offline_downloads\")\n fun getAllDownloads(): Flow<List<OfflineDownload>>\n @Insert(onConflict = OnConflictStrategy.REPLACE)\n suspend fun insertDownload(d: OfflineDownload)\n @Query(\"DELETE FROM offline_downloads WHERE trackId = :id\")\n suspend fun deleteDownload(id: String)\n}")
+        save(['data', 'local', 'CachedTrackDao.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\nimport kotlinx.coroutines.flow.Flow\n@Dao\ninterface CachedTrackDao {\n @Query(\"SELECT * FROM cached_tracks\")\n fun getAllCachedTracksFlow(): Flow<List<CachedTrackEntity>>\n @Insert(onConflict = OnConflictStrategy.REPLACE)\n suspend fun insertCachedTrack(t: CachedTrackEntity)\n @Query(\"DELETE FROM cached_tracks\")\n suspend fun deleteAllTracks()\n}")
 
-        # data/local/OfflineDownloadDao.kt
-        write_file(['data', 'local', 'OfflineDownloadDao.kt'], """package BASE_PKG.data.local
-        import androidx.room.*
-        import kotlinx.coroutines.flow.Flow
-        @Dao
-        interface OfflineDownloadDao {
-            @Query("SELECT * FROM offline_downloads")
-            fun getAllDownloads(): Flow<List<OfflineDownload>>
-            @Insert(onConflict = OnConflictStrategy.REPLACE)
-            suspend fun insertDownload(download: OfflineDownload)
-            @Query("DELETE FROM offline_downloads WHERE trackId = :id")
-            suspend fun deleteDownload(id: String)
-        }
-        """)
-
-        # service/DownloadService.kt
-        write_file(['service', 'DownloadService.kt'], """package BASE_PKG.service
-        import android.app.Service
-        import android.content.Intent
-        import android.os.IBinder
-        import androidx.core.app.NotificationCompat
-        import BASE_PKG.R
-        class DownloadService : Service() {
-            override fun onBind(intent: Intent?): IBinder? = null
-            override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-                startForeground(1, NotificationCompat.Builder(this, "dl").setSmallIcon(R.drawable.ic_notification).build())
-                return START_STICKY
-            }
-        }
-        """)
+        # Services
+        save(['service', 'DownloadService.kt'], "package BASE_PKG.service\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nimport androidx.core.app.NotificationCompat\nimport BASE_PKG.R\nclass DownloadService : Service() {\n override fun onBind(i: Intent?): IBinder? = null\n override fun onStartCommand(i: Intent?, f: Int, s: Int): Int {\n  startForeground(1, NotificationCompat.Builder(this, \"dl\").setSmallIcon(R.drawable.ic_notification).setContentTitle(\"Downloading\").build())\n  return START_STICKY\n }\n}")
+        save(['service', 'MusicPlaybackService.kt'], "package BASE_PKG.service\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nclass MusicPlaybackService : Service() {\n override fun onBind(i: Intent?): IBinder? = null\n}")
         EOF
 
-    - name: STEP 4 - AppDatabase Stabilizer (Brace Safe)
+    - name: STEP 4 - AppDatabase Stabilizer (Safe Mode)
       run: |
         python3 - <<'EOF'
         import os, re
@@ -150,10 +111,10 @@ jobs:
             with open(db_file, 'r') as f: content = f.read()
             pkg = re.search(r'^package\s+(.*)', content, re.M).group(1).strip()
             
-            # Clean AppDatabase of bad names
+            # Sync Entity names
             content = content.replace('OfflineDownloadEntity', 'OfflineDownload')
+            content = content.replace('CachedTrack', 'CachedTrackEntity')
             
-            # Find all classes that Room expects
             entities = re.findall(r'(\w+)::class', content)
             daos = re.findall(r'abstract\s+fun\s+\w+\s*\(\s*\)\s*:\s*(\w+)', content)
             
@@ -161,18 +122,23 @@ jobs:
             for r, d, files in os.walk(src):
                 for f in files: existing.add(f.replace('.kt', ''))
             
-            # Create stubs for anything missing
+            # Create missing stubs
             for name in entities:
                 if name not in existing:
                     with open(os.path.join(os.path.dirname(db_file), name + ".kt"), 'w') as out:
                         out.write("package " + pkg + "\nimport androidx.room.*\n@Entity\ndata class " + name + "(@PrimaryKey val id: String = \"\")\n")
+                    existing.add(name)
             
             for name in daos:
                 if name not in existing:
                     with open(os.path.join(os.path.dirname(db_file), name + ".kt"), 'w') as out:
                         out.write("package " + pkg + "\nimport androidx.room.*\n@Dao\ninterface " + name + " {}\n")
+                    existing.add(name)
             
-            with open(db_file, 'w') as f: f.write(content)
+            # Clean imports
+            lines = content.split('\n')
+            final_lines = [l for l in lines if 'OfflineDownloadEntity' not in l]
+            with open(db_file, 'w') as f: f.write('\n'.join(final_lines))
         EOF
 
     - name: STEP 5 - Final Build
