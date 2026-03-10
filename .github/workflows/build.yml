@@ -79,11 +79,9 @@ jobs:
         RES_DIR="openwave/android/app/src/main/res"
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         
-        # System XML
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
         
-        # Strings
         cat << 'EOF' > "$RES_DIR/values/kimi_missing_strings.xml"
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
@@ -101,19 +99,17 @@ jobs:
         EOF
         echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
         
-        # Icons
         V_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
         for i in play pause previous next ic_download ic_download_complete ic_download_error ic_notification ic_previous ic_pause ic_play ic_next; do
             echo "$V_XML" > "$RES_DIR/drawable/${i}.xml"
         done
         
-        # App Icon
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - Ultimate Kotlin Surgeon 6.0 (Safe Mode)
+    - name: STEP 3 - Ultimate Kotlin Surgeon 7.0 (Strict AST Parser)
       run: |
-        echo "Extracting pure code and fixing AI syntax truncation..."
+        echo "Performing lexical restructuring of Kotlin files..."
         python3 - <<'EOF'
         import os, re
 
@@ -123,50 +119,77 @@ jobs:
                 path = os.path.join(root, f)
 
                 try:
-                    with open(path, 'r', encoding='utf-8') as file: 
+                    with open(path, 'r', encoding='utf-8') as file:
                         raw_text = file.read()
                     
-                    # 1. SAFEST EXTRACTION: Take ONLY the largest markdown block.
-                    # This prevents gluing duplicates which causes "Expecting a top level declaration".
+                    # 1. EXTRACT ALL BLOCKS
                     b3 = chr(96) * 3
                     pattern = b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3
                     blocks = re.findall(pattern, raw_text, re.DOTALL | re.IGNORECASE)
                     
                     if blocks:
-                        code = max(blocks, key=len)
+                        # Glue them together to ensure no missing code
+                        code_text = '\n\n'.join(blocks)
                     else:
-                        code = raw_text.replace(b3, '')
+                        code_text = raw_text
 
-                    # 2. CLEAN AI PLACEHOLDERS AND BROKEN SYNTAX
-                    code = re.sub(r'//\s*\.\.\..*', '', code)
-                    code = re.sub(r'/\*.*?\.\.\..*?\*/', '', code, flags=re.DOTALL)
+                    # 2. STRICT STRUCTURAL PARSING (Fixes "imports only allowed in beginning")
+                    # Extract Package
+                    pkg_match = re.search(r'^package\s+([a-zA-Z0-9_.]+)', code_text, re.MULTILINE)
+                    pkg = pkg_match.group(0) if pkg_match else ""
                     
-                    # Fix Enum trailing commas: "TRACK, PLAYLIST, }" -> "TRACK, PLAYLIST }"
-                    code = re.sub(r',\s*\}', '}', code)
-                    # Fix Parameter trailing commas: "fun(a: Int, )" -> "fun(a: Int)"
-                    code = re.sub(r',\s*\)', ')', code)
-                    # Fix truncated lines: "val id: String, \n fun" -> "val id: String \n fun"
-                    code = re.sub(r',\s*(?=\n\s*(?:@|fun\b|class\b|interface\b|val\b|var\b|override\b))', '', code)
+                    # Extract ALL Imports
+                    imports = set(re.findall(r'^import\s+[a-zA-Z0-9_.*]+', code_text, re.MULTILINE))
+                    
+                    # Remove Package and Imports from the body so they don't appear in the middle
+                    body = re.sub(r'^package\s+[a-zA-Z0-9_.]+', '', code_text, flags=re.MULTILINE)
+                    body = re.sub(r'^import\s+[a-zA-Z0-9_.*]+', '', body, flags=re.MULTILINE)
 
-                    # 3. DOMAIN SPECIFIC FIXES (Parcelize)
-                    code = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', code)
+                    # 3. FIX SYNTAX ERRORS AND AI FRAGMENTATION
+                    body = re.sub(r'//\s*\.\.\..*', '', body)
+                    body = re.sub(r'/\*.*?\.\.\..*?\*/', '', body, flags=re.DOTALL)
+                    body = body.replace('...', '')
 
-                    if 'data class OfflineDownload' in code:
-                        if 'import kotlinx.parcelize.Parcelize' not in code:
-                            code = "import kotlinx.parcelize.Parcelize\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n" + code
-                        code = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', code)
-                        code = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', code)
-                        if '@PrimaryKey' not in code:
-                            code = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', code, count=1)
+                    # Fix trailing commas before closing braces (Fixes Enum/Class errors)
+                    body = re.sub(r',\s*\}', '\n}', body)
+                    body = re.sub(r',\s*\)', '\n)', body)
+                    
+                    # Fix dangling commas
+                    body = re.sub(r',\s*(?=\n\s*(?:@|fun\b|class\b|interface\b|val\b|var\b|override\b))', '', body)
+                    body = re.sub(r',\s*$', '', body)
 
-                    # 4. INFER PACKAGE IF AI FORGOT IT
-                    if 'package ' not in code:
+                    # Fix missing param names `val : String` -> `val arg: String`
+                    body = re.sub(r'\b(?:val|var)\s*:\s*([A-Za-z0-9_]+)', r'val arg_\1: \1', body)
+                    body = re.sub(r',\s*:\s*([A-Za-z0-9_]+)', r', arg_\1: \1', body)
+
+                    # 4. PARCELIZE & ROOM DB FIXES
+                    body = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body)
+                    if 'data class OfflineDownload' in body:
+                        imports.add('import kotlinx.parcelize.Parcelize')
+                        imports.add('import android.os.Parcelable')
+                        imports.add('import androidx.room.Entity')
+                        imports.add('import androidx.room.PrimaryKey')
+                        body = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body)
+                        body = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body)
+                        if '@PrimaryKey' not in body:
+                            body = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body, count=1)
+
+                    # 5. AUTO-BALANCE BRACES (If AI cut off the code)
+                    open_b = body.count('{')
+                    close_b = body.count('}')
+                    if open_b > close_b:
+                        body += '\n}' * (open_b - close_b)
+
+                    # Infer package if completely missing
+                    if not pkg:
                         p_parts = path.split('java/')[1] if 'java/' in path else path.split('kotlin/')[1]
                         pkg = "package " + os.path.dirname(p_parts).replace('/', '.').replace('\\', '.')
-                        code = pkg + "\n\n" + code
+
+                    # 6. REASSEMBLE STRICTLY (Package -> Imports -> Body)
+                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + body
 
                     with open(path, 'w', encoding='utf-8') as f_out:
-                        f_out.write(code)
+                        f_out.write(final_code)
                 except Exception: pass
         EOF
 
@@ -208,7 +231,6 @@ jobs:
                                     out.write(f"package {pkg}\nimport androidx.room.*\n")
                                     if typ == 'e': out.write(f"@Entity\ndata class {name}(@PrimaryKey val id: String = \"\")\n")
                                     else: out.write(f"class {name} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
-                                print(f"Healed stub: {name}")
                 
                 add_missing(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
                 add_missing(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
@@ -222,5 +244,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Alpha-Build
+        name: OpenWave-Final-Build
         path: '**/*.apk'
