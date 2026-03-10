@@ -30,17 +30,18 @@ jobs:
         echo "Знайдено проект Flutter у папці: $FLUTTER_DIR"
         echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
 
-    - name: STEP 2 - Hardcode Dependency Fixes (No Flutter required)
+    - name: STEP 2 - Hardcode Dependency Fixes
       run: |
         cd ${{ env.FLUTTER_DIR }}
         echo "Жорстко переписуємо версії в pubspec.yaml перед запуском Flutter..."
         
-        # Замінюємо старі версії на 'any' або правильні напряму в тексті
+        # Замінюємо старі версії на 'any'
         sed -i 's/intl:.*/intl: ^0.19.0/g' pubspec.yaml
         sed -i 's/package_info_plus:.*/package_info_plus: any/g' pubspec.yaml
         sed -i 's/device_info_plus:.*/device_info_plus: any/g' pubspec.yaml
         sed -i 's/connectivity_plus:.*/connectivity_plus: any/g' pubspec.yaml
         sed -i 's/share_plus:.*/share_plus: any/g' pubspec.yaml
+        sed -i 's/supabase_flutter:.*/supabase_flutter: any/g' pubspec.yaml
 
     - name: STEP 3 - Surgical Android Wrapper Regeneration
       run: |
@@ -65,15 +66,24 @@ jobs:
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
-        echo "Тепер безпечно завантажуємо оновлені пакети..."
+        echo "Завантажуємо оновлені пакети..."
         flutter pub get
         
-        echo "Генеруємо код для бази даних (Drift)..."
+        echo "Генеруємо код для бази даних..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 5 - Build Production APK
+    - name: STEP 5 - Build Production APK (With Legacy Plugin Fix)
       run: |
         cd ${{ env.FLUTTER_DIR }}
+        
+        # МАГІЧНИЙ ФІКС: Штучно додаємо версії SDK для старих плагінів
+        echo "Ін'єкція параметрів SDK у local.properties..."
+        mkdir -p android
+        echo "flutter.compileSdkVersion=34" >> android/local.properties
+        echo "flutter.minSdkVersion=24" >> android/local.properties
+        echo "flutter.targetSdkVersion=34" >> android/local.properties
+        
+        echo "Збираємо APK..."
         flutter build apk --debug
 
     - name: STEP 6 - Upload APK
