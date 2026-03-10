@@ -17,15 +17,21 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Build Native Android App
+    - name: Prepare and Patch Android Project
       run: |
-        # Розпаковуємо ваш архів
+        # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
+        # 2. ВИПРАВЛЕННЯ ПОМИЛКИ ДУБЛІКАТІВ РЕПОЗИТОРІЇВ
+        # Міняємо сувору заборону на дозвіл використовувати проектні налаштування
+        sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
+
+    - name: Build Native Android App
+      run: |
         # Переходимо в папку Android
         cd openwave/android
         
-        # Використовуємо глобальний gradle, оскільки gradlew відсутній
+        # Запускаємо збірку
         gradle assembleDebug
 
     - name: Upload APK
