@@ -228,7 +228,7 @@ enum class ItemType {{
                     
                     if '```' in raw:
                         import re
-                        blocks = re.findall(r'                        if blocks:
+                        blocks = re.findall(r'                         if blocks:
                             cleaned = max(blocks, key=len)
                             with open(p, 'w', encoding='utf-8') as out: out.write(cleaned)
                 except: pass
@@ -258,8 +258,8 @@ enum class ItemType {{
         if db_file:
             with open(db_file, 'r') as f: content = f.read()
             pkg_m = re.search(r'^package\s+(.*)', content, re.M)
-            if pkg_m:
-                pkg = pkg_m.group(1).strip()
+            if pkg_match:
+                pkg = pkg_match.group(1).strip()
                 def mk(rx, t):
                     for i in re.findall(rx, content, re.S):
                         for name in re.split(r',\s*', i):
