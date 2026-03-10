@@ -22,11 +22,10 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: STEP 1 - Project Sterilization (Including Hilt Removal)
+    - name: STEP 1 - Project Sterilization
       run: |
         unzip -q -o "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # Видаляємо всі залишки Hilt/Dagger, щоб уникнути попереджень KAPT
         sed -i '/dagger.hilt/d' openwave/android/build.gradle.kts || true
         sed -i '/dagger.hilt/d' openwave/android/app/build.gradle.kts || true
         
@@ -76,7 +75,8 @@ jobs:
                 android:label="@string/app_name"
                 android:roundIcon="@mipmap/ic_launcher_round"
                 android:supportsRtl="true"
-                android:theme="@style/Theme.OpenWave">
+                android:theme="@style/Theme.OpenWave"
+                android:usesCleartextTraffic="true">
                 <activity
                     android:name=".MainActivity"
                     android:exported="true"
@@ -90,7 +90,7 @@ jobs:
         </manifest>
         EOF
 
-    - name: STEP 3 - Architecture Rebirth (Stable UI)
+    - name: STEP 3 - Architecture Rebirth (Adding REAL Audio Player)
       run: |
         python3 - <<'EOF'
         import os, re, shutil
@@ -108,7 +108,6 @@ jobs:
 
         pkg_path = os.path.join(src_dir, base_pkg.replace('.', '/'))
 
-        # Знищуємо всі залишки
         if os.path.exists(pkg_path):
             shutil.rmtree(pkg_path)
             
@@ -119,7 +118,7 @@ jobs:
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, 'w') as f: f.write(body.replace("BASE_PKG", base_pkg))
 
-        # СТВОРЮЄМО СПРАВЖНІЙ ІНТЕРФЕЙС МУЗИЧНОГО ДОДАТКА (Виправлено Modifier.clickable)
+        # MAIN ACTIVITY З РЕАЛЬНИМ ПЛЕЄРОМ EXO PLAYER
         save(['MainActivity.kt'], """package BASE_PKG
         import android.os.Bundle
         import androidx.activity.ComponentActivity
@@ -130,7 +129,10 @@ jobs:
         import androidx.compose.runtime.*
         import androidx.compose.ui.Alignment
         import androidx.compose.ui.Modifier
+        import androidx.compose.ui.platform.LocalContext
         import androidx.compose.ui.unit.dp
+        import androidx.media3.common.MediaItem
+        import androidx.media3.exoplayer.ExoPlayer
 
         class MainActivity : ComponentActivity() {
             override fun onCreate(savedInstanceState: Bundle?) {
@@ -145,38 +147,56 @@ jobs:
             }
         }
 
+        data class TrackItem(val title: String, val url: String)
+
         @Composable
         fun MusicAppUI() {
+            val context = LocalContext.current
+            
+            // Ініціалізація реального плеєра
+            val exoPlayer = remember { ExoPlayer.Builder(context).build() }
             var isPlaying by remember { mutableStateOf(false) }
-            var currentTrack by remember { mutableStateOf("Choose a track") }
+            var currentTrackName by remember { mutableStateOf("Оберіть трек") }
+
+            // Очищення пам'яті плеєра при виході
+            DisposableEffect(Unit) {
+                onDispose { exoPlayer.release() }
+            }
+
+            // Список реальних (безкоштовних) аудіо стрімів для тесту
+            val tracks = listOf(
+                TrackItem("Lofi Chill (Stream)", "https://stream.ecardio.ro/1"),
+                TrackItem("Jazz Vibes", "https://stream.ecardio.ro/1") 
+            )
 
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                Text("OpenWave Music", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+                Text("OpenWave Music (Audio Test)", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Text("Trending Tracks", style = MaterialTheme.typography.titleMedium)
+                Text("Доступні треки", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                val tracks = listOf("1. Synthwave Dreams", "2. Midnight City", "3. Neon Lights", "4. Retro Retro")
-                
                 tracks.forEach { track ->
-                    // ВИПРАВЛЕННЯ: Використовуємо стабільний Modifier.clickable замість експериментального Card(onClick)
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .clickable { 
-                                currentTrack = track
+                                currentTrackName = track.title
+                                val mediaItem = MediaItem.fromUri(track.url)
+                                exoPlayer.setMediaItem(mediaItem)
+                                exoPlayer.prepare()
+                                exoPlayer.play()
                                 isPlaying = true 
                             }
                     ) {
-                        Text(text = track, modifier = Modifier.padding(16.dp))
+                        Text(text = track.title, modifier = Modifier.padding(16.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Mini Player
+                // Міні Плеєр
                 Card(
                     modifier = Modifier.fillMaxWidth(), 
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
@@ -187,10 +207,17 @@ jobs:
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Now Playing", style = MaterialTheme.typography.labelSmall)
-                            Text(currentTrack, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                            Text("Зараз грає", style = MaterialTheme.typography.labelSmall)
+                            Text(currentTrackName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                         }
-                        Button(onClick = { isPlaying = !isPlaying }) {
+                        Button(onClick = { 
+                            if (isPlaying) {
+                                exoPlayer.pause()
+                            } else {
+                                exoPlayer.play()
+                            }
+                            isPlaying = !isPlaying 
+                        }) {
                             Text(if (isPlaying) "Pause" else "Play")
                         }
                     }
@@ -219,5 +246,5 @@ jobs:
     - name: STEP 5 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Interactive-APK
+        name: OpenWave-Audio-APK
         path: '**/*.apk'
