@@ -14,38 +14,25 @@ jobs:
     - name: Set up Java
       uses: actions/setup-java@v4
       with:
-        java-version: '21'
+        java-version: '17' # Для нативних Android додатків зазвичай краще використовувати Java 17
         distribution: 'temurin'
 
-    - name: Fix Kotlin Conflict
+    - name: Build Native Android App
       run: |
-        mkdir -p ~/.gradle
-        cat << 'EOF' > ~/.gradle/init.gradle
-        allprojects {
-            configurations.all {
-                resolutionStrategy.eachDependency { DependencyResolveDetails details ->
-                    if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {
-                        details.useVersion '1.8.22'
-                    }
-                }
-            }
-        }
-        EOF
-
-    - name: Build App
-      run: |
-        # Розпаковуємо ваш НОВИЙ архів
+        # 1. Розпаковуємо ваш новий архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # Шукаємо скрипт збірки і запускаємо його
-        SCRIPT_DIR=$(dirname $(find . -name build-apk.sh | head -n 1))
-        cd "$SCRIPT_DIR"
-        chmod +x build-apk.sh
-        ./build-apk.sh
+        # 2. Переходимо в папку Android, яку створив Kimi
+        cd openwave/android
+        
+        # 3. Даємо права на виконання інструменту збірки Gradle
+        chmod +x gradlew
+        
+        # 4. Запускаємо стандартну збірку Android-додатка
+        ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Spotiua-V2-Native
+        name: Spotiua-Native-App
         path: '**/*.apk'
-        
