@@ -30,8 +30,29 @@ jobs:
         # 2. Виправлення дублікатів репозиторіїв
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         
-        # 3. ВИПРАВЛЕННЯ KOTLIN: Видаляємо зламаний рядок оптимізації мов
+        # 3. Видаляємо зламаний рядок оптимізації мов
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
+        
+        # 4. СУПЕР-ПАТЧ: Очищаємо всі файли перекладів від помилок Kimi
+        python3 - <<'EOF'
+        import os, re
+        for root, dirs, files in os.walk('openwave/android/app/src/main/res'):
+            if 'strings.xml' in files:
+                path = os.path.join(root, 'strings.xml')
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Замінюємо зламані вставки на правильний плейсхолдер %s
+                content = content.replace(r'\u{str}', '%s')
+                content = content.replace(r'\{str}', '%s')
+                content = content.replace(r'{str}', '%s')
+                
+                # Видаляємо будь-які \u, після яких немає 4-х цифр (щоб компілятор не падав)
+                content = re.sub(r'\\u(?![0-9a-fA-F]{4})', '', content)
+                
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+        EOF
 
     - name: Build Native Android App
       run: |
