@@ -52,14 +52,15 @@ jobs:
         echo "android.useAndroidX=true" >> android/gradle.properties
         echo "android.enableJetifier=true" >> android/gradle.properties
         
-        echo "flutter.compileSdkVersion=34" >> android/local.properties
+        # Upgraded to SDK 35 as required by sqlite3_flutter_libs
+        echo "flutter.compileSdkVersion=35" >> android/local.properties
         echo "flutter.minSdkVersion=24" >> android/local.properties
-        echo "flutter.targetSdkVersion=34" >> android/local.properties
+        echo "flutter.targetSdkVersion=35" >> android/local.properties
 
     - name: STEP 4 - The AI Code Doctor
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Healing Kimi's AI hallucinations in Dart database and Supabase syntax..."
+        echo "Healing Kimi's AI hallucinations in Dart syntax..."
         python3 - <<'EOF'
         import os, re
         
@@ -98,6 +99,16 @@ jobs:
                     
                     # 5. Fix Drift 'native' parameter hallucination
                     content = re.sub(r'native:\s*(?:const\s+)?DriftNativeOptions\s*\((?:[^)(]+|\([^)(]*\))*\)\s*,?', r'', content, flags=re.DOTALL)
+                    
+                    # 6. Fix DropdownButtonFormField 'enabled' parameter in admin_screen.dart
+                    content = content.replace("enabled: !_isUploading,", "// enabled: !_isUploading,")
+                    
+                    # 7. Fix easy_localization Map literal error (args -> namedArgs)
+                    content = content.replace("args: {", "namedArgs: {")
+                    
+                    # 8. Fix PlayerBloc copyWith hallucination
+                    content = content.replace("currentTrack: () => event.track", "currentTrack: event.track")
+                    content = content.replace("currentTrack: () => null", "currentTrack: null")
                     
                     if orig_content != content:
                         with open(path, 'w', encoding='utf-8') as file:
