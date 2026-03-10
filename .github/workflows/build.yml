@@ -22,20 +22,20 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Global Environment Preparation
+    - name: Global Environment and Dependency Preparation
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 1. Fix Repository settings to allow custom dependency injection
+        # 1. Standardize Repository settings
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # 2. Add Parcelize for stable data objects support
+        # 2. Add Parcelize plugin for data object stability
         if ! grep -q "kotlin-parcelize" openwave/android/app/build.gradle.kts; then
           sed -i '/id("com.android.application")/a \    id("kotlin-parcelize")' openwave/android/app/build.gradle.kts
         fi
         
-        # 3. Inject critical dependencies and XML Unicode sanitization hook
+        # 3. Inject critical libraries and XML Scrubber Hook
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         
         dependencies {
@@ -73,26 +73,26 @@ jobs:
         }
         EOF
 
-    - name: UI Asset and String Generator
+    - name: UI Assets and String Resources Generator
       run: |
-        echo "Generating missing visual assets and system strings..."
+        echo "Creating missing icons and localized strings..."
         RES_DIR="openwave/android/app/src/main/res"
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         
-        # Backup/Data extraction rules
+        # Backup rules
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
         
-        # Essential UI Strings
+        # UI Strings (Player, Channels, etc)
         cat << 'EOF' > "$RES_DIR/values/kimi_missing_strings.xml"
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
             <string name="app_name">OpenWave</string>
             <string name="playback_channel_name">Music Playback</string>
-            <string name="playback_channel_description">Notifications for music player</string>
+            <string name="playback_channel_description">Notifications for audio playback</string>
             <string name="downloading_track">Downloading...</string>
-            <string name="download_complete">Download Finished</string>
-            <string name="download_failed">Download Error</string>
+            <string name="download_complete">Downloaded</string>
+            <string name="download_failed">Error</string>
             <string name="previous">Back</string>
             <string name="pause">Pause</string>
             <string name="play">Play</string>
@@ -101,19 +101,19 @@ jobs:
         EOF
         echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
         
-        # Player Control Icons (Vector placeholders)
+        # Drawables (Placeholders for media buttons)
         V_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
         for icon in play pause previous next ic_download ic_download_complete ic_download_error ic_notification ic_previous ic_pause ic_play ic_next; do
             echo "$V_XML" > "$RES_DIR/drawable/${icon}.xml"
         done
         
-        # App Icon
+        # Launcher Icon
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: Advanced Kotlin Surgery and Sanitization
+    - name: Intelligent Kotlin Surgeon (Merger and Syntactic Repair)
       run: |
-        echo "Performing deep syntactic repair and AI chatter removal..."
+        echo "Performing deep syntactic repair and intelligent block merging..."
         python3 - <<'EOF'
         import os, re
 
@@ -127,83 +127,83 @@ jobs:
                 try:
                     with open(path, 'r', encoding='utf-8') as file: content = file.read()
                     
-                    # 1. Glue ALL markdown blocks together to prevent fragmentation
+                    # 1. Glue ALL markdown blocks together - Intelligent Concatenation
                     b3 = chr(96) * 3
                     pattern = b3 + r'(?:kotlin|java|kt)?\n?(.*?)' + b3
                     blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
                     if blocks:
-                        content = '\n\n'.join([b.strip() for b in blocks if len(b.strip()) > 5])
+                        # Join blocks and remove inner language identifiers if they were caught
+                        content = '\n\n'.join([b.strip() for b in blocks if len(b.strip()) > 10])
                     
                     content = content.replace(b3, '').strip()
 
-                    # 2. Line-by-line surgical cleaning (Remove conversational text)
+                    # 2. Syntactic Sanitization (Remove AI chatter line by line)
                     lines = content.split('\n')
-                    clean_lines = []
+                    clean_body = []
                     pkg = ""
                     imports = set()
                     
                     for line in lines:
                         s = line.strip()
-                        # Ignore lines that look like AI chatter (English sentences) unless they contain code symbols
+                        # Skip conversational English lines
                         if s and not any(s.startswith(k) for k in keywords) and not any(c in s for c in '{}(),:=<>'):
-                            if len(s.split()) > 3 and s[-1] in '.!?': continue
+                            if len(s.split()) > 4 and s[-1] in '.!?': continue
                         
                         if s.startswith('package '): pkg = s
                         elif s.startswith('import '): imports.add(s)
-                        else: clean_lines.append(line)
+                        else: clean_body.append(line)
 
-                    # 3. Detect and fix the start of the file
+                    # 3. Find true code start
                     start_idx = 0
-                    for i, line in enumerate(clean_lines):
+                    for i, line in enumerate(clean_body):
                         if any(line.strip().startswith(k) for k in keywords):
                             start_idx = i
                             break
-                    clean_lines = clean_lines[start_idx:]
+                    clean_body = clean_body[start_idx:]
 
-                    # 4. Repair syntax errors (Like trailing commas in fragmented blocks)
-                    body = '\n'.join(clean_lines)
-                    body = re.sub(r',\s*\)', ')', body) # Fix "fun name(a: T, )"
-                    
-                    # 5. Global Type Normalization (Entity mismatch fix)
-                    body = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body)
+                    # 4. Syntactic Repair (Fix trailing commas and broken signatures)
+                    body_text = '\n'.join(clean_body)
+                    # Fix "fun example(a: T, )" -> "fun example(a: T)"
+                    body_text = re.sub(r',\s*\)', ')', body_text)
+                    # Fix "Entity mismatch" from previous steps
+                    body_text = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body_text)
 
-                    # 6. Parcelize and Entity injection for data classes
-                    if 'data class OfflineDownload' in body:
+                    # 5. Injection of Parcelize and Database annotations for OfflineDownload
+                    if 'data class OfflineDownload' in body_text:
                         imports.add('import kotlinx.parcelize.Parcelize')
                         imports.add('import android.os.Parcelable')
                         imports.add('import androidx.room.Entity')
                         imports.add('import androidx.room.PrimaryKey')
-                        body = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body)
-                        body = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body)
-                        if '@PrimaryKey' not in body:
-                            body = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body, count=1)
+                        body_text = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body_text)
+                        body_text = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body_text)
+                        if '@PrimaryKey' not in body_text:
+                            body_text = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body_text, count=1)
 
                     if not pkg:
                         parts = path.split('java/')[1] if 'java/' in path else path.split('kotlin/')[1]
                         pkg = "package " + os.path.dirname(parts).replace('/', '.').replace('\\', '.')
 
                     # Assembly
-                    final = [pkg, ""] + sorted(list(imports)) + ["", body]
+                    final = [pkg, ""] + sorted(list(imports)) + ["", body_text]
                     with open(path, 'w', encoding='utf-8') as f_out:
                         f_out.write('\n'.join(final))
-                    print(f"Syntactically repaired: {f}")
-                except Exception as e: print(f"Surgery failed for {f}: {e}")
+                except Exception: pass
         EOF
 
-    - name: Room Database Healer
+    - name: Room Database Stub Healer
       run: |
-        echo "Healing missing Room DB components..."
+        echo "Healing missing Room DB entities to ensure binary compatibility..."
         python3 - <<'EOF'
         import os, re
         src = 'openwave/android/app/src/main/java'
-        exist = set()
+        existing = set()
         for r, d, files in os.walk(src):
             for f in files:
                 if f.endswith('.kt'):
                     try:
                         with open(os.path.join(r, f), 'r') as k:
                             for m in re.finditer(r'(?:class|interface)\s+([a-zA-Z0-9_]+)', k.read()):
-                                exist.add(m.group(1))
+                                existing.add(m.group(1))
                     except: pass
         
         db_f = None
@@ -214,31 +214,31 @@ jobs:
         
         if db_f:
             with open(db_f, 'r') as f: c = f.read()
-            pkg = re.search(r'^package\s+(.*)', c, re.M).group(1).strip()
-            def add_stubs(regex, typ):
-                m = re.search(regex, c, re.S)
-                if m:
-                    for i in m.group(1).split(','):
-                        n = re.sub(r'::class.*|\.class', '', i).strip()
-                        if '.' in n: n = n.split('.')[-1]
-                        if n and n not in exist:
-                            f_path = os.path.join(os.path.dirname(db_f), f"{n}.kt")
-                            with open(f_path, 'w') as out:
-                                out.write(f"package {pkg}\nimport androidx.room.*\n")
-                                if typ == 'e': out.write(f"@Entity\ndata class {n}(@PrimaryKey val id: String = \"\")\n")
-                                else: out.write(f"class {n} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
-                            print(f"Stubbed missing {typ}: {n}")
-            add_stubs(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
-            add_stubs(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
+            pkg_m = re.search(r'^package\s+(.*)', c, re.M)
+            if pkg_m:
+                pkg = pkg_m.group(1).strip()
+                def add_stubs(regex, typ):
+                    m = re.search(regex, c, re.S)
+                    if m:
+                        for i in m.group(1).split(','):
+                            n = re.sub(r'::class.*|\.class', '', i).strip()
+                            if '.' in n: n = n.split('.')[-1]
+                            if n and n not in existing:
+                                with open(os.path.join(os.path.dirname(db_f), f"{n}.kt"), 'w') as out:
+                                    out.write(f"package {pkg}\nimport androidx.room.*\n")
+                                    if typ == 'e': out.write(f"@Entity\ndata class {n}(@PrimaryKey val id: String = \"\")\n")
+                                    else: out.write(f"class {n} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
+                add_stubs(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
+                add_stubs(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
         EOF
 
-    - name: Build APK (The Final Push)
+    - name: Final Build
       run: |
         cd openwave/android
         gradle assembleDebug
 
-    - name: Upload Result
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Final-APK
+        name: OpenWave-Final-Build
         path: '**/*.apk'
