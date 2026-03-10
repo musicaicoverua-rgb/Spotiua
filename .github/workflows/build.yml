@@ -43,9 +43,10 @@ jobs:
             implementation("com.jakewharton.timber:timber:5.0.1")
             implementation("com.google.code.gson:gson:2.10.1")
             
-            // Supabase Cloud Storage
+            // Supabase Auth & Storage
             implementation(platform("io.github.jan-tennert.supabase:bom:2.1.3"))
             implementation("io.github.jan-tennert.supabase:storage-kt")
+            implementation("io.github.jan-tennert.supabase:gotrue-kt")
             implementation("io.ktor:ktor-client-android:2.3.8")
             implementation("io.ktor:ktor-client-core:2.3.8")
         }
@@ -57,7 +58,7 @@ jobs:
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
-        V_ICON='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>'
+        V_ICON='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>'
         echo "$V_ICON" > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         echo "$V_ICON" > "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_final.xml"
@@ -65,7 +66,7 @@ jobs:
         MANIFEST_PATH="openwave/android/app/src/main/AndroidManifest.xml"
         cat << 'EOF' > "$MANIFEST_PATH"
         <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+        <manifest xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
             <application
@@ -91,7 +92,7 @@ jobs:
         </manifest>
         EOF
 
-    - name: STEP 3 - Real Supabase Backend Integration
+    - name: STEP 3 - Real Supabase Backend Integration (Safe Strings)
       run: |
         python3 - <<'EOF'
         import os, shutil
@@ -148,8 +149,7 @@ jobs:
         import io.github.jan.supabase.storage.Storage
         import io.github.jan.supabase.storage.storage
 
-        // ВАШІ РЕАЛЬНІ КЛЮЧІ SUPABASE
-        val supabaseUrl = "https://nmowlkjoragnffkxbrzq.supabase.co"
+        val supabaseUrl = "[https://nmowlkjoragnffkxbrzq.supabase.co](https://nmowlkjoragnffkxbrzq.supabase.co)"
         val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tb3dsa2pvcmFnbmZma3hicnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTYyNjcsImV4cCI6MjA4ODY3MjI2N30.yNHTyZfXOjy-lJNxCOm8F9_YVGWF6kGWmueFYBHTfI0"
 
         val supabase = createSupabaseClient(supabaseUrl, supabaseKey) {
@@ -197,7 +197,7 @@ jobs:
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text("OpenWave", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
-                Text("Supabase Connected ☁️", style = MaterialTheme.typography.bodyLarge)
+                Text("Supabase Connected", style = MaterialTheme.typography.bodyLarge)
                 Spacer(modifier = Modifier.height(48.dp))
 
                 if (!showAdminLogin) {
@@ -260,7 +260,6 @@ jobs:
             }
             DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
 
-            // ФУНКЦІЯ: Завантаження списку пісень з Supabase Storage
             fun fetchTracksFromCloud() {
                 isLoading = true
                 coroutineScope.launch(Dispatchers.IO) {
@@ -269,7 +268,7 @@ jobs:
                         val files = bucket.list()
                         val newTracks = files.map { file ->
                             TrackItem(title = file.name, url = bucket.publicUrl(file.name))
-                        }.filter { it.title.endsWith(".mp3") } // Беремо тільки mp3
+                        }.filter { it.title.endsWith(".mp3") }
                         
                         withContext(Dispatchers.Main) {
                             tracks = newTracks
@@ -278,16 +277,13 @@ jobs:
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             isLoading = false
-                            Toast.makeText(context, "Бакет 'tracks' порожній або недоступний", Toast.LENGTH_LONG).show()
                         }
                     }
                 }
             }
 
-            // Завантажуємо при старті
             LaunchedEffect(Unit) { fetchTracksFromCloud() }
 
-            // ФУНКЦІЯ ВИБОРУ ФАЙЛУ (Адмін завантажує в Cloud)
             val filePickerLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.GetContent()
             ) { uri: Uri? ->
@@ -303,21 +299,20 @@ jobs:
                     isUploading = true
                     coroutineScope.launch(Dispatchers.IO) {
                         try {
-                            // Читаємо байті файлу
                             val bytes = context.contentResolver.openInputStream(it)?.use { stream -> stream.readBytes() }
                             if (bytes != null) {
-                                // Відправляємо на Supabase
                                 val bucket = supabase.storage.from("tracks")
                                 bucket.upload(fileName, bytes)
                                 
                                 withContext(Dispatchers.Main) {
-                                    Toast.makeText(context, "Трек '\$fileName' успішно завантажено в Хмару!", Toast.LENGTH_LONG).show()
-                                    fetchTracksFromCloud() // Оновлюємо список
+                                    Toast.makeText(context, "Трек " + fileName + " завантажено!", Toast.LENGTH_LONG).show()
+                                    fetchTracksFromCloud()
                                 }
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Помилка завантаження: \${e.message}", Toast.LENGTH_LONG).show()
+                                val err = e.message ?: "Невідома помилка"
+                                Toast.makeText(context, "Помилка: " + err, Toast.LENGTH_LONG).show()
                             }
                         } finally {
                             withContext(Dispatchers.Main) { isUploading = false }
@@ -328,7 +323,7 @@ jobs:
 
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isAdmin) "Панель Адміна 👑" else "Слухач 🎧", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(if (isAdmin) "Панель Адміна" else "Слухач", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
                     TextButton(onClick = { exoPlayer.stop(); onLogout() }) { Text("Вихід", color = MaterialTheme.colorScheme.error) }
                 }
                 
@@ -340,7 +335,7 @@ jobs:
                         modifier = Modifier.fillMaxWidth().height(55.dp),
                         enabled = !isUploading
                     ) {
-                        Text(if (isUploading) "⏳ Відправка в Хмару..." else "➕ Завантажити MP3 в Supabase")
+                        Text(if (isUploading) "Відправка в Хмару..." else "Завантажити MP3 в Supabase")
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
@@ -366,7 +361,7 @@ jobs:
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                             ) {
                                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("☁️ ")
+                                    Text("Play ")
                                     Text(text = track.title)
                                 }
                             }
@@ -376,7 +371,6 @@ jobs:
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Міні Плеєр
                 Card(
                     modifier = Modifier.fillMaxWidth(), 
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
@@ -400,4 +394,10 @@ jobs:
         """)
 
         save(['data', 'local', 'DummyEntity.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\n@Entity data class DummyEntity(@PrimaryKey val id: Int = 0)")
-        save(['data', 'local', 'AppDa
+        save(['data', 'local', 'AppDatabase.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\n@Database(entities = [DummyEntity::class], version = 1, exportSchema = false)\nabstract class AppDatabase : RoomDatabase() {}")
+
+        EOF
+
+    - name: STEP 4 - Clean Build
+      run: |
+     
