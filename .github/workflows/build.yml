@@ -17,34 +17,20 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Install Flutter
+    - name: Install Flutter (Upgraded to 3.24.3)
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.22.0'
+        flutter-version: '3.24.3'
         channel: 'stable'
 
     - name: STEP 1 - Unpack Kimi's Project
       run: |
-        # Розпаковуємо архів
         unzip -q -o "Kimi_Agent_OpenWave Complete Code.zip"
-        
-        # Автоматично знаходимо папку, де лежить pubspec.yaml
         FLUTTER_DIR=$(find . -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
         echo "Знайдено проект Flutter у папці: $FLUTTER_DIR"
         echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
 
-    - name: STEP 2 - Fix Dependencies & Generate Code
-      run: |
-        cd ${{ env.FLUTTER_DIR }}
-        
-        # Оновлюємо конфліктні пакети
-        flutter pub add intl:any package_info_plus:any device_info_plus:any share_plus:any connectivity_plus:any
-        
-        flutter pub get
-        
-        dart run build_runner build --delete-conflicting-outputs || true
-
-    - name: STEP 3 - Surgical Android Wrapper Regeneration
+    - name: STEP 2 - Surgical Android Wrapper Regeneration
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
@@ -53,20 +39,32 @@ jobs:
         cp android/app/src/main/AndroidManifest.xml /tmp/openwave_backup/AndroidManifest.xml || true
         cp -r android/app/src/main/res/* /tmp/openwave_backup/res/ || true
         
-        echo "2. Видаляємо стару зламану конфігурацію Kimi..."
+        echo "2. Видаляємо стару конфігурацію..."
         rm -rf android/
         
-        echo "3. Генеруємо ідеальну нову структуру для Flutter 3.22.0..."
+        echo "3. Генеруємо ідеальну структуру для найновішого Flutter 3.24.3..."
         flutter create . --platforms android
         
         echo "4. Повертаємо Маніфест та іконки на місце..."
         cp /tmp/openwave_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml || true
         cp -r /tmp/openwave_backup/res/* android/app/src/main/res/ || true
 
+    - name: STEP 3 - Fix Dependencies & Generate Code
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
+        
+        # Оновлюємо конфліктні пакети до найновіших версій, які тепер ідеально підходять
+        flutter pub add intl:any package_info_plus:any device_info_plus:any share_plus:any connectivity_plus:any
+        
+        flutter pub get
+        
+        # Генеруємо код для бази даних (Drift) та ін'єкцій
+        dart run build_runner build --delete-conflicting-outputs || true
+
     - name: STEP 4 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        # Збираємо додаток
+        # Збираємо готовий додаток
         flutter build apk --debug
 
     - name: STEP 5 - Upload APK
