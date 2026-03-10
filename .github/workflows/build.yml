@@ -22,20 +22,17 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Inject Gradle Sterilization Hook
+    - name: Inject Gradle Hook and Fix Settings
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # МАГІЯ ТУТ: Впроваджуємо хук прямо в конфігурацію додатка
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         
         tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Resources") }.configureEach {
             doFirst {
-                println("=== ЗАПУСК СТЕРИЛІЗАЦІЇ РЕСУРСІВ ПЕРЕД ЗЛИТТЯМ ===")
-                // Створюємо проблемний рядок безпечним шляхом, щоб сам компілятор не впав
                 val uStr = 92.toChar() + "u{str}"
                 val regArtist = Regex("<string name=\"artist_name\".*?</string>", RegexOption.DOT_MATCHES_ALL)
                 val regUser = Regex("<string name=\"username_optional\".*?</string>", RegexOption.DOT_MATCHES_ALL)
@@ -46,40 +43,48 @@ jobs:
                             try {
                                 var text = file.readText()
                                 var changed = false
-                                
-                                if (text.contains("artist_name")) {
-                                    text = text.replace(regArtist, "")
-                                    changed = true
-                                }
-                                if (text.contains("username_optional")) {
-                                    text = text.replace(regUser, "")
-                                    changed = true
-                                }
-                                if (text.contains(uStr)) {
-                                    text = text.replace(uStr, "str")
-                                    changed = true
-                                }
-                                
-                                if (changed) {
-                                    file.writeText(text)
-                                    println("Вилікувано файл: " + file.absolutePath)
-                                }
+                                if (text.contains("artist_name")) { text = text.replace(regArtist, ""); changed = true }
+                                if (text.contains("username_optional")) { text = text.replace(regUser, ""); changed = true }
+                                if (text.contains(uStr)) { text = text.replace(uStr, "str"); changed = true }
+                                if (changed) { file.writeText(text) }
                             } catch(e: Exception) {}
                         }
                     }
                 }
-                
-                // Проходимося катком і по кешу сервера, і по локальних файлах
                 sanitizeDir(File(System.getProperty("user.home"), ".gradle/caches/transforms-3"))
                 sanitizeDir(File(projectDir, "src/main/res"))
             }
         }
         EOF
 
-    - name: Build APK (Single Clean Run)
+    - name: Generator of Missing LLM Resources (Icons & Themes)
+      run: |
+        echo "Створюємо відсутні файли, про які забув Kimi..."
+        RES_DIR="openwave/android/app/src/main/res"
+        mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26"
+        
+        # 1. Відсутні правила бекапу
+        echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
+        echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
+        
+        # 2. Назва додатку та Тема (Використовуємо унікальні імена файлів, щоб нічого не затерти)
+        echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string></resources>' > "$RES_DIR/values/kimi_missing_strings.xml"
+        echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
+        
+        # 3. Базова Іконка Додатку (Синій квадрат-плейсхолдер)
+        cat << 'EOF' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+            <path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/>
+        </vector>
+        EOF
+        cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
+        
+        echo "Всі відсутні ресурси успішно згенеровано!"
+
+    - name: Build APK
       run: |
         cd openwave/android
-        # Цей єдиний запуск пройде ідеально
         gradle assembleDebug
 
     - name: Upload APK
