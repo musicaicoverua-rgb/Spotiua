@@ -35,7 +35,7 @@ jobs:
           sed -i '/id("com.android.application")/a \    id("kotlin-parcelize")' openwave/android/app/build.gradle.kts
         fi
         
-        # 3. Inject missing dependencies & XML Unicode Fix (Solves \u{str} and missing Timber/Media3)
+        # 3. Inject missing dependencies & XML Unicode Fix
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         
         dependencies {
@@ -111,13 +111,11 @@ jobs:
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - Ultimate Kotlin Surgeon & Syntax Fixer
+    - name: STEP 3 - Ultimate Kotlin Surgeon 6.0 (Safe Mode)
       run: |
-        echo "Performing deep syntax repair (Killing LLM ellipses and commas)..."
+        echo "Extracting pure code and fixing AI syntax truncation..."
         python3 - <<'EOF'
         import os, re
-
-        valid_starts = ('package ', 'import ', '@', 'class ', 'interface ', 'object ', 'fun ', 'val ', 'var ', 'typealias ', 'public ', 'private ', 'protected ', 'internal ', 'expect ', 'actual ', 'final ', 'open ', 'abstract ', 'sealed ', 'const ', 'external ', 'override ', 'lateinit ', 'tailrec ', 'vararg ', 'suspend ', 'inner ', 'enum ', 'annotation ', 'companion ', 'inline ', 'noinline ', 'crossinline ', 'reified ', 'infix ', 'operator ', 'data ')
 
         for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
             for f in files:
@@ -125,94 +123,50 @@ jobs:
                 path = os.path.join(root, f)
 
                 try:
-                    with open(path, 'r', encoding='utf-8') as file: content = file.read()
+                    with open(path, 'r', encoding='utf-8') as file: 
+                        raw_text = file.read()
                     
-                    # 1. Extract and Glue markdown blocks
+                    # 1. SAFEST EXTRACTION: Take ONLY the largest markdown block.
+                    # This prevents gluing duplicates which causes "Expecting a top level declaration".
                     b3 = chr(96) * 3
-                    pattern = b3 + r'(?:kotlin|java|kt)?\n?(.*?)' + b3
-                    blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
+                    pattern = b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3
+                    blocks = re.findall(pattern, raw_text, re.DOTALL | re.IGNORECASE)
+                    
                     if blocks:
-                        content = '\n\n'.join([re.sub(r'^\s*(?:kotlin|java|kt)\b', '', b, flags=re.IGNORECASE).strip() for b in blocks if len(b.strip()) > 5])
+                        code = max(blocks, key=len)
+                    else:
+                        code = raw_text.replace(b3, '')
+
+                    # 2. CLEAN AI PLACEHOLDERS AND BROKEN SYNTAX
+                    code = re.sub(r'//\s*\.\.\..*', '', code)
+                    code = re.sub(r'/\*.*?\.\.\..*?\*/', '', code, flags=re.DOTALL)
                     
-                    content = content.replace(b3, '').strip()
+                    # Fix Enum trailing commas: "TRACK, PLAYLIST, }" -> "TRACK, PLAYLIST }"
+                    code = re.sub(r',\s*\}', '}', code)
+                    # Fix Parameter trailing commas: "fun(a: Int, )" -> "fun(a: Int)"
+                    code = re.sub(r',\s*\)', ')', code)
+                    # Fix truncated lines: "val id: String, \n fun" -> "val id: String \n fun"
+                    code = re.sub(r',\s*(?=\n\s*(?:@|fun\b|class\b|interface\b|val\b|var\b|override\b))', '', code)
 
-                    # 2. Extract structure
-                    lines = content.split('\n')
-                    clean_lines = []
-                    pkg = ""
-                    imports = set()
-                    
-                    for line in lines:
-                        s = line.strip()
-                        if s.startswith('package '): 
-                            if not pkg: pkg = s
-                        elif s.startswith('import '):
-                            imports.add(s)
-                        else:
-                            clean_lines.append(line)
+                    # 3. DOMAIN SPECIFIC FIXES (Parcelize)
+                    code = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', code)
 
-                    # 3. Strip leading English text
-                    start_idx = 0
-                    for i, line in enumerate(clean_lines):
-                        if any(line.strip().startswith(v) for v in valid_starts):
-                            start_idx = i
-                            break
-                    clean_lines = clean_lines[start_idx:]
-                    
-                    body = '\n'.join(clean_lines)
+                    if 'data class OfflineDownload' in code:
+                        if 'import kotlinx.parcelize.Parcelize' not in code:
+                            code = "import kotlinx.parcelize.Parcelize\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n" + code
+                        code = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', code)
+                        code = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', code)
+                        if '@PrimaryKey' not in code:
+                            code = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', code, count=1)
 
-                    # --- THE ULTIMATE SYNTAX REPAIR ---
-                    # A. Kill AI placeholder ellipses like "...", "// ...", "/* ... */"
-                    body = re.sub(r'//\s*\.\.\..*', '', body) 
-                    body = re.sub(r'/\*.*?\.\.\..*?\*/', '', body, flags=re.DOTALL)
-                    body = re.sub(r',\s*\.\.\.', '', body) 
-                    body = re.sub(r'\(\s*\.\.\.', '(', body)
-                    body = body.replace('...', '')
-
-                    # B. Fix dangling commas followed by keywords (Auto-closes truncated param lists)
-                    body = re.sub(r',\s*(?=\n\s*(?:@|fun\b|class\b|interface\b|val\b|var\b))', '\n)', body)
-                    
-                    # C. Fix dangling commas at the very end of the file
-                    body = re.sub(r',\s*$', '\n)', body)
-
-                    # D. Fix trailing/leading commas inside parentheses
-                    body = re.sub(r',\s*\)', ')', body)
-                    body = re.sub(r'\(\s*,', '(', body)
-                    body = re.sub(r',\s*,', ',', body)
-                    
-                    # E. Fix missing parameter names generated by AI
-                    body = re.sub(r'\b(?:val|var)\s*:\s*([A-Za-z0-9_]+)', r'val arg_\1: \1', body)
-                    body = re.sub(r',\s*:\s*([A-Za-z0-9_]+)', r', arg_\1: \1', body)
-
-                    # F. Auto-balance missing braces at the end of the file
-                    open_b = body.count('{')
-                    close_b = body.count('}')
-                    if open_b > close_b:
-                        body += '\n}' * (open_b - close_b)
-
-                    # 4. Global Entity Normalization
-                    body = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body)
-
-                    # 5. Parcelize support for Downloads
-                    if 'data class OfflineDownload' in body:
-                        imports.add('import kotlinx.parcelize.Parcelize')
-                        imports.add('import android.os.Parcelable')
-                        imports.add('import androidx.room.Entity')
-                        imports.add('import androidx.room.PrimaryKey')
-                        body = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body)
-                        body = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body)
-                        if '@PrimaryKey' not in body:
-                            body = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body, count=1)
-
-                    # Infer package if missing
-                    if not pkg:
+                    # 4. INFER PACKAGE IF AI FORGOT IT
+                    if 'package ' not in code:
                         p_parts = path.split('java/')[1] if 'java/' in path else path.split('kotlin/')[1]
                         pkg = "package " + os.path.dirname(p_parts).replace('/', '.').replace('\\', '.')
+                        code = pkg + "\n\n" + code
 
-                    # Re-assemble
-                    final_file = [pkg, ""] + sorted(list(imports)) + ["", body]
                     with open(path, 'w', encoding='utf-8') as f_out:
-                        f_out.write('\n'.join(final_file))
+                        f_out.write(code)
                 except Exception: pass
         EOF
 
