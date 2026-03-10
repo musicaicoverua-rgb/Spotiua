@@ -237,7 +237,6 @@ jobs:
                                     if t == 'e': out.write("@Entity\ndata class " + n + "(@PrimaryKey val id: String = \"\")\n")
                                     else: out.write("class " + n + " { @TypeConverter fun f(v:String?):List<String> = emptyList() }\n")
                                 existing.add(n)
-                                content = re.sub(r'import\s+.*\.{}\b'.format(n), '', content)
                 
                 mk(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
                 mk(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
@@ -246,4 +245,5 @@ jobs:
                 for dao in daos:
                     n = dao.strip()
                     if n and n not in existing:
-                        with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as ou
+                        with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
+                            out.write("package " + pkg + "\nimport androidx.room.*\n@Dao\ni
