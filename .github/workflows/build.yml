@@ -31,13 +31,37 @@ jobs:
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # 3. СУПЕР-ПАТЧ 2.0 (Через Perl): Агресивна зачистка всіх зламаних \u{str}
-        # Крок А: Замінюємо конкретно \u{str} на %s
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec perl -pi -e 's/\\u\{str\}/%s/g' {} +
-        # Крок Б: Видаляємо будь-які \u, після яких немає 4-х цифр (щоб компілятор не падав)
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec perl -pi -e 's/\\u(?![0-9a-fA-F]{4})//g' {} +
-        # Крок В: Замінюємо залишки {str} на %s
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec perl -pi -e 's/\{str\}/%s/g' {} +
+        # 3. ВИПРАВЛЕННЯ БАГУ GOOGLE (Оновлюємо бібліотеку media3 до 1.3.1)
+        cat << 'EOF' >> openwave/android/app/build.gradle.kts
+        
+        configurations.all {
+            resolutionStrategy.eachDependency {
+                if (requested.group == "androidx.media3") {
+                    useVersion("1.3.1")
+                }
+            }
+        }
+        EOF
+        
+        # 4. ВИПРАВЛЕННЯ БАГУ KIMI (Видаляємо рядки з помилками у локальних файлах)
+        python3 - <<'EOF'
+        import os
+        for root, dirs, files in os.walk('openwave/android/app/src/main/res'):
+            for f in files:
+                if f.endswith('.xml'):
+                    path = os.path.join(root, f)
+                    try:
+                        with open(path, 'r', encoding='utf-8') as file:
+                            lines = file.readlines()
+                        # Записуємо назад тільки ті рядки, де немає зламаного символу \u або {str}
+                        with open(path, 'w', encoding='utf-8') as file:
+                            for line in lines:
+                                if r'\u' in line or '{str}' in line:
+                                    continue
+                                file.write(line)
+                    except Exception as e:
+                        pass
+        EOF
 
     - name: Build Native Android App
       run: |
