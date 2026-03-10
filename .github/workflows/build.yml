@@ -37,28 +37,31 @@ jobs:
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
-        # Використовуємо 'any' для конфліктних пакетів. 
-        # Це змусить Flutter автоматично підібрати ідеально сумісні версії
+        # Оновлюємо конфліктні пакети
         flutter pub add intl:any package_info_plus:any device_info_plus:any share_plus:any connectivity_plus:any
         
-        # Завантажуємо всі бібліотеки
         flutter pub get
         
-        # Генеруємо архітектурний код (моделі, залежності)
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 3 - Fix Android Configuration
+    - name: STEP 3 - Surgical Android Wrapper Regeneration
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
-        # 1. Примусово вмикаємо AndroidX
-        mkdir -p android
-        echo "android.useAndroidX=true" >> android/gradle.properties
-        echo "android.enableJetifier=true" >> android/gradle.properties
+        echo "1. Зберігаємо Маніфест (права на аудіо) та іконки..."
+        mkdir -p /tmp/openwave_backup/res
+        cp android/app/src/main/AndroidManifest.xml /tmp/openwave_backup/AndroidManifest.xml || true
+        cp -r android/app/src/main/res/* /tmp/openwave_backup/res/ || true
         
-        # 2. Виправляємо невідому змінну kotlin_version
-        sed -i 's/$kotlin_version/1.9.0/g' android/app/build.gradle || true
-        sed -i 's/${kotlin_version}/1.9.0/g' android/app/build.gradle || true
+        echo "2. Видаляємо стару зламану конфігурацію Kimi..."
+        rm -rf android/
+        
+        echo "3. Генеруємо ідеальну нову структуру для Flutter 3.22.0..."
+        flutter create . --platforms android
+        
+        echo "4. Повертаємо Маніфест та іконки на місце..."
+        cp /tmp/openwave_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml || true
+        cp -r /tmp/openwave_backup/res/* android/app/src/main/res/ || true
 
     - name: STEP 4 - Build Production APK
       run: |
