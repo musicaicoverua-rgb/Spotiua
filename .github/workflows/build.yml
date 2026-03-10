@@ -228,4 +228,58 @@ enum class ItemType {{
                     
                     if '```' in raw:
                         import re
-                        blocks = re.findall(r'
+                        blocks = re.findall(r'                        if blocks:
+                            cleaned = max(blocks, key=len)
+                            with open(p, 'w', encoding='utf-8') as out: out.write(cleaned)
+                except: pass
+        EOF
+
+    - name: STEP 4 - Database Stability & Stubs
+      run: |
+        python3 - <<'EOF'
+        import os, re
+        src = 'openwave/android/app/src/main/java'
+        existing = set()
+        for r, d, files in os.walk(src):
+            for f in files:
+                if f.endswith('.kt'):
+                    try:
+                        with open(os.path.join(r, f), 'r') as k:
+                            for m in re.finditer(r'(?:class|interface)\s+([a-zA-Z0-9_]+)', k.read()):
+                                existing.add(m.group(1))
+                    except: pass
+        
+        db_file = None
+        for r, d, files in os.walk(src):
+            if 'AppDatabase.kt' in files:
+                db_file = os.path.join(r, 'AppDatabase.kt')
+                break
+        
+        if db_file:
+            with open(db_file, 'r') as f: content = f.read()
+            pkg_m = re.search(r'^package\s+(.*)', content, re.M)
+            if pkg_m:
+                pkg = pkg_m.group(1).strip()
+                def mk(rx, t):
+                    for i in re.findall(rx, content, re.S):
+                        for name in re.split(r',\s*', i):
+                            n = re.sub(r'[^a-zA-Z0-9_]', '', re.sub(r'::class.*|\.class|//.*|/\*.*?\*/', '', name).split('.')[-1])
+                            if n and n not in existing:
+                                with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
+                                    out.write(f"package {pkg}\nimport androidx.room.*\n")
+                                    if t == 'e': out.write(f"@Entity\ndata class {n}(@PrimaryKey val id: String = \"\")\n")
+                                    else: out.write(f"class {n} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
+                mk(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
+                mk(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
+        EOF
+
+    - name: STEP 5 - Compile & Build
+      run: |
+        cd openwave/android
+        gradle assembleDebug
+
+    - name: STEP 6 - Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: OpenWave-Final-Build
+        path: '**/*.apk'
