@@ -36,8 +36,6 @@ jobs:
         cd ${{ env.FLUTTER_DIR }}
         echo "Applying dependency overrides to resolve 'web' and 'intl' conflicts..."
         
-        # We use overrides instead of upgrading plugins. 
-        # Upgrading plugins would break Kimi's native Android wrapper.
         cat << 'EOF' >> pubspec.yaml
         
         dependency_overrides:
@@ -51,19 +49,54 @@ jobs:
         
         mkdir -p android
         
-        echo "1. Fixing Kotlin version globally..."
         echo "kotlin_version=1.9.0" >> android/gradle.properties
-        
-        echo "2. Enabling AndroidX..."
         echo "android.useAndroidX=true" >> android/gradle.properties
         echo "android.enableJetifier=true" >> android/gradle.properties
         
-        echo "3. Injecting SDK versions for legacy plugins..."
         echo "flutter.compileSdkVersion=34" >> android/local.properties
         echo "flutter.minSdkVersion=24" >> android/local.properties
         echo "flutter.targetSdkVersion=34" >> android/local.properties
 
-    - name: STEP 4 - Pub Get & Generate Code
+    - name: STEP 4 - The AI Code Doctor
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
+        echo "Healing Kimi's AI hallucinations in Dart database syntax..."
+        python3 - <<'EOF'
+        import os, re
+        
+        for root, dirs, files in os.walk('lib'):
+            for f in files:
+                if f.endswith('.dart'):
+                    path = os.path.join(root, f)
+                    with open(path, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                    
+                    orig_content = content
+                    
+                    # 1. Fix hallucinated delete syntax
+                    # delete(table).delete(condition); -> (delete(table)..where((tbl) => condition)).go();
+                    content = re.sub(
+                        r'delete\(\s*([a-zA-Z0-9_]+)\s*\)\.delete\(\s*(.*?)\s*,?\s*\)\s*;',
+                        r'(delete(\1)..where((tbl) => \2)).go();',
+                        content,
+                        flags=re.DOTALL
+                    )
+                    
+                    # 2. Fix hallucinated 'native' parameter in driftDatabase
+                    content = re.sub(
+                        r'native:\s*(?:const\s+)?DriftNativeOptions\s*\((?:[^)(]+|\([^)(]*\))*\)\s*,?',
+                        r'',
+                        content,
+                        flags=re.DOTALL
+                    )
+                    
+                    if orig_content != content:
+                        with open(path, 'w', encoding='utf-8') as file:
+                            file.write(content)
+                        print(f"Healed Drift database syntax in {f}")
+        EOF
+
+    - name: STEP 5 - Pub Get & Generate Code
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
@@ -73,12 +106,12 @@ jobs:
         echo "Running code generator for database (Drift)..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 5 - Build Production APK
+    - name: STEP 6 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
         flutter build apk --debug
 
-    - name: STEP 6 - Upload APK
+    - name: STEP 7 - Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: OpenWave-App-Ready
