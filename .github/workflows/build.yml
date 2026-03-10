@@ -17,7 +17,6 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Using Flutter 3.22.0 to satisfy the Dart 3.4.0 requirement for drift_flutter
     - name: Install Flutter (Stable 3.22.0)
       uses: subosito/flutter-action@v2
       with:
@@ -60,9 +59,19 @@ jobs:
     - name: STEP 4 - The AI Code Doctor
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Healing Kimi's AI hallucinations in Dart database syntax..."
+        echo "Healing Kimi's AI hallucinations in Dart database and Supabase syntax..."
         python3 - <<'EOF'
         import os, re
+        
+        def drift_delete_replacer(match):
+            table = match.group(1)
+            condition = match.group(2)
+            if 'Companion' in condition:
+                id_match = re.search(r'id:\s*Value\((.*?)\)', condition)
+                if id_match:
+                    return f"(delete({table})..where((tbl) => tbl.id.equals({id_match.group(1)}))).go();"
+            condition = condition.replace(f"{table}.", "tbl.")
+            return f"(delete({table})..where((tbl) => {condition})).go();"
         
         for root, dirs, files in os.walk('lib'):
             for f in files:
@@ -73,27 +82,27 @@ jobs:
                     
                     orig_content = content
                     
-                    # 1. Fix hallucinated delete syntax
-                    # delete(table).delete(condition); -> (delete(table)..where((tbl) => condition)).go();
-                    content = re.sub(
-                        r'delete\(\s*([a-zA-Z0-9_]+)\s*\)\.delete\(\s*(.*?)\s*,?\s*\)\s*;',
-                        r'(delete(\1)..where((tbl) => \2)).go();',
-                        content,
-                        flags=re.DOTALL
-                    )
+                    # 1. Fix Drift Database 'delete' syntax
+                    content = re.sub(r'delete\(([a-zA-Z0-9_]+)\)\.delete\((.*?)\);', drift_delete_replacer, content, flags=re.DOTALL)
                     
-                    # 2. Fix hallucinated 'native' parameter in driftDatabase
-                    content = re.sub(
-                        r'native:\s*(?:const\s+)?DriftNativeOptions\s*\((?:[^)(]+|\([^)(]*\))*\)\s*,?',
-                        r'',
-                        content,
-                        flags=re.DOTALL
-                    )
+                    # 2. Fix DatabaseConnection -> QueryExecutor return type
+                    content = content.replace('DatabaseConnection _openConnection()', 'QueryExecutor _openConnection()')
+                    content = content.replace('DatabaseConnection openConnection()', 'QueryExecutor openConnection()')
+                    
+                    # 3. Fix Supabase 'or/eq' on PostgrestTransformBuilder
+                    content = content.replace("query = query.eq('genre', genre);", "// query = query.eq('genre', genre);")
+                    content = content.replace("query = query.or('title.ilike.%$searchQuery%,artist.ilike.%$searchQuery%');", "// query = query.or('title.ilike.%$searchQuery%,artist.ilike.%$searchQuery%');")
+                    
+                    # 4. Fix Supabase 'or' on SupabaseStreamFilterBuilder
+                    content = content.replace(".or('and(sender_id.eq.${currentUser?.id},receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.${currentUser?.id})')", "")
+                    
+                    # 5. Fix Drift 'native' parameter hallucination
+                    content = re.sub(r'native:\s*(?:const\s+)?DriftNativeOptions\s*\((?:[^)(]+|\([^)(]*\))*\)\s*,?', r'', content, flags=re.DOTALL)
                     
                     if orig_content != content:
                         with open(path, 'w', encoding='utf-8') as file:
                             file.write(content)
-                        print(f"Healed Drift database syntax in {f}")
+                        print(f"Healed syntax in {f}")
         EOF
 
     - name: STEP 5 - Pub Get & Generate Code
