@@ -26,7 +26,7 @@ jobs:
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 1. Fix Repositories (Solves FAIL_ON_PROJECT_REPOS)
+        # 1. Fix Repositories
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
@@ -107,9 +107,9 @@ jobs:
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - Ultimate Kotlin Lexer (Safe Merging & Syntax Repair)
+    - name: STEP 3 - Ultimate AST Balancer (Strict Syntax Healing)
       run: |
-        echo "Performing intelligent code merging and syntax healing..."
+        echo "Performing lexical brace balancing and syntax restructuring..."
         python3 - <<'EOF'
         import os, re
 
@@ -122,79 +122,106 @@ jobs:
                     with open(path, 'r', encoding='utf-8') as file:
                         raw_text = file.read()
                     
-                    # 1. EXTRACT ALL BLOCKS AND GLUE THEM
+                    # 1. Extract and Glue Code
                     b3 = chr(96) * 3
-                    pattern = b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3
-                    blocks = re.findall(pattern, raw_text, re.DOTALL | re.IGNORECASE)
+                    blocks = re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw_text, re.DOTALL | re.IGNORECASE)
+                    code = '\n\n'.join(blocks) if blocks else raw_text
+
+                    # 2. Extract Package & Imports
+                    pkg_m = re.search(r'^\s*package\s+([a-zA-Z0-9_.]+)', code, re.MULTILINE)
+                    pkg = pkg_m.group(0).strip() if pkg_m else ""
+                    imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code, re.MULTILINE))
                     
-                    if blocks:
-                        code_text = '\n\n'.join(blocks)
-                    else:
-                        code_text = raw_text
+                    code = re.sub(r'^\s*package\s+.*$', '', code, flags=re.MULTILINE)
+                    code = re.sub(r'^\s*import\s+.*$', '', code, flags=re.MULTILINE)
 
-                    # 2. EXTRACT PACKAGE AND IMPORTS (Moves them to the very top)
-                    pkg_match = re.search(r'^\s*package\s+([a-zA-Z0-9_.]+)', code_text, re.MULTILINE)
-                    pkg = pkg_match.group(0).strip() if pkg_match else ""
+                    # 3. Syntax Cleanups
+                    code = re.sub(r'//\s*\.\.\..*', '', code)
+                    code = re.sub(r'/\*.*?\.\.\..*?\*/', '', code, flags=re.DOTALL)
+                    code = code.replace('...', '')
+
+                    # Remove dangling commas
+                    code = re.sub(r',\s*\)', ')', code)
+                    code = re.sub(r',\s*\}', '\n}', code)
+                    code = re.sub(r',\s*$', '', code, flags=re.MULTILINE)
                     
-                    imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code_text, re.MULTILINE))
+                    # Fix Missing Semicolon in Enums (Fixes User.kt)
+                    code = re.sub(r'([A-Z0-9_]+)\s*\n\s+(?=@|fun\b|val\b|var\b|override\b|companion\b)', r'\1;\n', code)
                     
-                    body = re.sub(r'^\s*package\s+[a-zA-Z0-9_.]+', '', code_text, flags=re.MULTILINE)
-                    body = re.sub(r'^\s*import\s+[a-zA-Z0-9_.*]+', '', body, flags=re.MULTILINE)
+                    # Fix Missing Parameter Names
+                    code = re.sub(r'\b(?:val|var)\s*:\s*([A-Za-z0-9_]+)', r'val arg_\1: \1', code)
+                    code = re.sub(r'(?<=\(|,)\s*:\s*([A-Za-z0-9_]+)', r' arg_\1: \1', code)
 
-                    # 3. SAFE SYNTAX HEALING
-                    body = re.sub(r'//\s*\.\.\..*', '', body)
-                    body = re.sub(r'/\*.*?\.\.\..*?\*/', '', body, flags=re.DOTALL)
-                    body = body.replace('...', '')
+                    # 4. Filter AI Chatter
+                    lines = code.split('\n')
+                    clean_lines = []
+                    for l in lines:
+                        s = l.strip()
+                        if not s: 
+                            clean_lines.append(l)
+                            continue
+                        # If line is pure English without any code operators, skip it
+                        if s.lower().startswith(('here', 'sure', 'this', 'the', 'note', 'updated', 'adding', 'finally')):
+                            if not any(c in s for c in '{}()=<>'):
+                                continue
+                        clean_lines.append(l)
+                    code = '\n'.join(clean_lines)
 
-                    # Fix trailing commas before closing symbols
-                    body = re.sub(r',\s*\}', '\n}', body)
-                    body = re.sub(r',\s*\)', '\n)', body)
-                    
-                    # Fix dangling commas before new declarations
-                    body = re.sub(r',\s*(?=\n\s*(?:@|fun\b|class\b|interface\b|val\b|var\b|override\b))', '\n', body)
-                    body = re.sub(r',\s*$', '\n', body)
-
-                    # Fix empty parameter names (val : String -> val arg: String)
-                    body = re.sub(r'\b(?:val|var)\s*:\s*([A-Za-z0-9_]+)', r'val arg_\1: \1', body)
-                    body = re.sub(r',\s*:\s*([A-Za-z0-9_]+)', r', arg_\1: \1', body)
-                    
-                    # Fix Missing Enum semicolon
-                    body = re.sub(r'([A-Z0-9_]+)\s*\n\s*(?=fun\b|val\b|var\b)', r'\1;\n', body)
-
-                    # 4. DOMAIN SPECIFIC FIXES (Parcelize)
-                    body = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body)
-
-                    if 'data class OfflineDownload' in body:
+                    # 5. Domain Fixes (Parcelize)
+                    code = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', code)
+                    if 'data class OfflineDownload' in code:
                         imports.update(['import kotlinx.parcelize.Parcelize', 'import android.os.Parcelable', 'import androidx.room.Entity', 'import androidx.room.PrimaryKey'])
-                        body = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body)
-                        body = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body)
-                        if '@PrimaryKey' not in body:
-                            body = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body, count=1)
+                        code = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', code)
+                        code = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', code)
+                        if '@PrimaryKey' not in code:
+                            code = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', code, count=1)
 
-                    # 5. AUTO-BALANCE BRACES
-                    open_p = body.count('(')
-                    close_p = body.count(')')
-                    if open_p > close_p:
-                        body = re.sub(r',\s*$', '', body)
-                        body += '\n' + ')' * (open_p - close_p)
+                    # 6. ULTIMATE BRACE BALANCING (Fixes "Top level declaration" and "Expecting '}'")
+                    res = []
+                    depth = 0
+                    in_string = False
+                    in_char = False
+                    escape = False
+                    
+                    for char in code:
+                        if escape:
+                            escape = False
+                            res.append(char)
+                            continue
+                        if char == '\\':
+                            escape = True
+                            res.append(char)
+                            continue
+                        if char == '"' and not in_char:
+                            in_string = not in_string
+                        if char == "'" and not in_string:
+                            in_char = not in_char
 
-                    open_b = body.count('{')
-                    close_b = body.count('}')
-                    if open_b > close_b:
-                        body += '\n' + '}' * (open_b - close_b)
+                        if not in_string and not in_char:
+                            if char == '{':
+                                depth += 1
+                                res.append(char)
+                            elif char == '}':
+                                if depth > 0:
+                                    depth -= 1
+                                    res.append(char)
+                                # If depth is 0, DO NOT APPEND '}'. This deletes extra braces!
+                            else:
+                                res.append(char)
+                        else:
+                            res.append(char)
+                    
+                    balanced_code = "".join(res) + ('\n}' * depth) # Add missing braces at the end
 
-                    # Infer package if missing
                     if not pkg:
                         p_parts = path.split('java/')[1] if 'java/' in path else path.split('kotlin/')[1]
                         pkg = "package " + os.path.dirname(p_parts).replace('/', '.').replace('\\', '.')
 
-                    # 6. REASSEMBLE STRICTLY
-                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + body
-
+                    # Reassemble
+                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + balanced_code
                     with open(path, 'w', encoding='utf-8') as f_out:
                         f_out.write(final_code)
-                except Exception as e: 
-                    pass
+                except Exception as e: pass
         EOF
 
     - name: STEP 4 - Room Database Healer
@@ -228,15 +255,11 @@ jobs:
                     m = re.search(regex, content, re.S)
                     if m:
                         for item in m.group(1).split(','):
-                            # Remove any comments from the string before extracting name
                             clean_item = re.sub(r'//.*', '', item)
                             clean_item = re.sub(r'/\*.*?\*/', '', clean_item, flags=re.DOTALL)
-                            
                             name = re.sub(r'::class.*|\.class', '', clean_item).strip()
                             if '.' in name: name = name.split('.')[-1]
-                            
-                            # ABSOLUTE SANITIZATION: keep only letters/numbers
-                            name = re.sub(r'[^a-zA-Z0-9_]', '', name)
+                            name = re.sub(r'[^a-zA-Z0-9_]', '', name) # Absolute sanitization
                             
                             if name and name not in existing_classes:
                                 with open(os.path.join(os.path.dirname(db_file), f"{name}.kt"), 'w') as out:
