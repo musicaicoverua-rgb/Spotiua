@@ -20,7 +20,7 @@ jobs:
     - name: Install Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.16.0'
+        flutter-version: '3.22.0' # ОНОВЛЕНО: Тепер підтримує всі нові бібліотеки Kimi
         channel: 'stable'
 
     - name: STEP 1 - Unpack Kimi's Project
@@ -40,8 +40,9 @@ jobs:
         # Завантажуємо всі бібліотеки
         flutter pub get
         
-        # Kimi використовує розумну архітектуру, яка потребує генерації коду. Запускаємо її:
-        flutter pub run build_runner build --delete-conflicting-outputs || true
+        # Kimi використовує розумну архітектуру, яка потребує генерації коду. 
+        # Використовуємо сучасну команду dart run
+        dart run build_runner build --delete-conflicting-outputs || true
 
     - name: STEP 3 - Build Production APK
       run: |
