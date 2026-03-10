@@ -70,7 +70,7 @@ jobs:
         
         cat << 'EOF' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         <?xml version="1.0" encoding="utf-8"?>
-        <vector xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+        <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
             <path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/>
         </vector>
         EOF
@@ -78,9 +78,13 @@ jobs:
 
     - name: The Ultimate AI Code Sterilizer
       run: |
-        echo "Розумне вилучення коду від розмітки Kimi..."
+        echo "Smart extraction of code from Kimi markdown..."
         python3 - <<'EOF'
         import os, re
+
+        # Generate backticks via code so GitHub parsers do not break
+        b3 = chr(96) * 3
+        pattern = b3 + r'(?:kotlin|java)?\s*(.*?)\s*' + b3
 
         for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
             for f in files:
@@ -92,8 +96,31 @@ jobs:
                         
                         original_content = content
                         
-                        # 1. Знаходимо всі блоки коду Markdown (```kotlin ... ```)
-                        blocks = re.findall(r'
+                        # Look for code blocks with safe pattern
+                        blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
+                        if blocks:
+                            content = max(blocks, key=len)
+                        
+                        # Trim garbage before package keyword
+                        pkg_idx = content.find('package ')
+                        if pkg_idx > 0:
+                            content = content[pkg_idx:]
+                            
+                        if content != original_content:
+                            with open(path, 'w', encoding='utf-8') as file:
+                                file.write(content)
+                            print(f"Cleaned file: {f}")
+                    except Exception as e:
+                        pass
+        EOF
 
+    - name: Build APK
+      run: |
+        cd openwave/android
+        gradle assembleDebug
 
-### Що вам треба зробити:
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Spotiua-Native-Final
+        path: '**/*.apk'
