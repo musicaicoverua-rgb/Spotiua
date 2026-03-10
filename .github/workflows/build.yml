@@ -106,7 +106,7 @@ jobs:
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - Architecture Restorer & Import Gravity
+    - name: STEP 3 - Architecture Restorer & Database Injector
       run: |
         echo "Rewriting critical files and fixing AppDatabase imports..."
         python3 - <<'EOF'
@@ -150,12 +150,26 @@ jobs:
         with open(user_path, 'w') as f:
             f.write(f"package {base_pkg}.domain.model\n\ndata class User(\n    val id: String = \"\",\n    val username: String = \"\",\n    val profilePicUrl: String = \"\"\n)\n\nenum class ItemType {{\n    TRACK,\n    PLAYLIST,\n    ALBUM\n}}\n")
 
-        # FIX ALL OTHER FILES (Now includes AppDatabase.kt)
+        # FILE 5: CachedTrackEntity.kt (Fixes "no such table: cached_tracks")
+        cached_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/CachedTrackEntity.kt')
+        os.makedirs(os.path.dirname(cached_path), exist_ok=True)
+        with open(cached_path, 'w') as f:
+            f.write(f"package {base_pkg}.data.local\n\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity(tableName = \"cached_tracks\")\ndata class CachedTrackEntity(\n    @PrimaryKey val id: String = \"\",\n    val title: String = \"\",\n    val artist: String = \"\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val filePath: String = \"\",\n    val addedAt: Long = 0L\n)\n")
+
+        # FILE 6: CachedTrackDao.kt (Fixes Cursor conversion and SQL errors)
+        cached_dao_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/CachedTrackDao.kt')
+        os.makedirs(os.path.dirname(cached_dao_path), exist_ok=True)
+        with open(cached_dao_path, 'w') as f:
+            f.write(f"package {base_pkg}.data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface CachedTrackDao {{\n    @Query(\"SELECT * FROM cached_tracks ORDER BY addedAt DESC\")\n    fun getAllCachedTracksFlow(): Flow<List<CachedTrackEntity>>\n\n    @Query(\"SELECT * FROM cached_tracks WHERE id = :id LIMIT 1\")\n    suspend fun getCachedTrack(id: String): CachedTrackEntity?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertCachedTrack(track: CachedTrackEntity)\n\n    @Query(\"DELETE FROM cached_tracks\")\n    suspend fun deleteAllTracks()\n\n    @Query(\"DELETE FROM cached_tracks WHERE addedAt < :timestamp\")\n    suspend fun deleteOldTracks(timestamp: Long)\n}}\n")
+
+        # FIX ALL OTHER FILES AND INJECT INTO AppDatabase
         b3 = chr(96) * 3
+        protected_files = ['Track.kt', 'OfflineDownload.kt', 'OfflineDownloadDao.kt', 'User.kt', 'CachedTrackEntity.kt', 'CachedTrackDao.kt']
+        
         for root, dirs, files in os.walk(src_dir):
             for name in files:
                 if not name.endswith('.kt'): continue
-                if name in ['Track.kt', 'OfflineDownload.kt', 'OfflineDownloadDao.kt', 'User.kt']: continue
+                if name in protected_files: continue
                 
                 p = os.path.join(root, name)
                 try:
@@ -175,9 +189,16 @@ jobs:
                     imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code, re.MULTILINE))
                     code = re.sub(r'^\s*import\s+[a-zA-Z0-9_.*]+', '', code, flags=re.MULTILINE)
 
-                    # Remove bad Entity reference (Crucial for AppDatabase fixing!)
+                    # Remove bad Entity reference
                     code = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', code)
                     imports = {imp for imp in imports if 'OfflineDownloadEntity' not in imp}
+
+                    # SPECIAL FIX FOR AppDatabase.kt (Inject Entities so Room can see them)
+                    if name == 'AppDatabase.kt':
+                        if 'CachedTrackEntity::class' not in code:
+                            code = re.sub(r'(entities\s*=\s*\[)', r'\1CachedTrackEntity::class, ', code)
+                        if 'OfflineDownload::class' not in code:
+                            code = re.sub(r'(entities\s*=\s*\[)', r'\1OfflineDownload::class, ', code)
 
                     code = re.sub(r'//\s*\.\.\..*', '', code)
                     code = re.sub(r'/\*.*?\.\.\..*?\*/', '', code, flags=re.DOTALL)
@@ -247,13 +268,12 @@ jobs:
                                     if t == 'e': out.write(f"@Entity\ndata class {n}(@PrimaryKey val id: String = \"\")\n")
                                     else: out.write(f"class {n} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
                                 existing.add(n)
-                                # Remove bad imports to prevent Unresolved Reference
                                 content = re.sub(rf'import\s+.*\.{n}\b', '', content)
                 
                 mk(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
                 mk(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
 
-                # 2. HEAL MISSING DAOS (This fixes the [MissingType] error!)
+                # 2. HEAL MISSING DAOS
                 daos = re.findall(r'abstract\s+fun\s+[a-zA-Z0-9_]+\s*\(\s*\)\s*:\s*([a-zA-Z0-9_]+)', content)
                 for dao in daos:
                     n = dao.strip()
@@ -261,11 +281,9 @@ jobs:
                         with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
                             out.write(f"package {pkg}\nimport androidx.room.*\n@Dao\ninterface {n} {{}}\n")
                         existing.add(n)
-                        # Remove bad imports for the DAO
                         content = re.sub(rf'import\s+.*\.{n}\b', '', content)
                         print(f"Healed missing DAO: {n}")
                 
-                # Write back the cleaned AppDatabase
                 with open(db_file, 'w') as f: f.write(content)
         EOF
 
