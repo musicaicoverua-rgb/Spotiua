@@ -17,24 +17,25 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Setup Correct Gradle Version
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.4'
+
     - name: Prepare and Patch Android Project
       run: |
-        # Розпаковуємо архів
+        # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # Виправлення помилки дублікатів репозиторіїв
+        # 2. Виправлення помилки дублікатів репозиторіїв
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
 
     - name: Build Native Android App
       run: |
         cd openwave/android
         
-        # ВИПРАВЛЕННЯ ВЕРСІЇ GRADLE:
-        # Створюємо локальний Gradle версії 8.4 замість несумісного 9.3.1
-        gradle wrapper --gradle-version 8.4
-        
-        # Запускаємо збірку через сумісну версію
-        ./gradlew assembleDebug
+        # Завдяки кроку 'Setup Gradle', ця команда тепер 100% використає версію 8.4
+        gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
