@@ -22,7 +22,7 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Inject Gradle Hook and Fix Settings
+    - name: Inject Gradle Hook, Dependencies and Fix Settings
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
@@ -30,6 +30,16 @@ jobs:
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
+        
+        // Auto-inject missing library dependencies that AI forgot
+        dependencies {
+            implementation("androidx.media3:media3-exoplayer:1.3.1")
+            implementation("androidx.media3:media3-session:1.3.1")
+            implementation("androidx.media3:media3-common:1.3.1")
+            implementation("androidx.media3:media3-ui:1.3.1")
+            implementation("androidx.media:media:1.7.0")
+            implementation("com.jakewharton.timber:timber:5.0.1")
+        }
         
         tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Resources") }.configureEach {
             doFirst {
@@ -60,13 +70,21 @@ jobs:
     - name: Generator of Missing LLM Resources
       run: |
         RES_DIR="openwave/android/app/src/main/res"
-        mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26"
+        mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
         
-        echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string></resources>' > "$RES_DIR/values/kimi_missing_strings.xml"
+        # Strings + Missing Media Notification Texts
+        echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string><string name="playback_channel_name">Playback</string><string name="playback_channel_description">Media Controls</string></resources>' > "$RES_DIR/values/kimi_missing_strings.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
+        
+        # Generate missing Media Notification Icons (Placeholders)
+        VECTOR_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
+        echo "$VECTOR_XML" > "$RES_DIR/drawable/play.xml"
+        echo "$VECTOR_XML" > "$RES_DIR/drawable/pause.xml"
+        echo "$VECTOR_XML" > "$RES_DIR/drawable/previous.xml"
+        echo "$VECTOR_XML" > "$RES_DIR/drawable/next.xml"
         
         cat << 'EOF' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         <?xml version="1.0" encoding="utf-8"?>
@@ -101,12 +119,10 @@ jobs:
                     with open(path, 'r', encoding='utf-8') as file:
                         content = file.read()
 
-                    # Extract pure code from markdown safely
                     b3 = chr(96) * 3
                     pattern = b3 + r'(?:kotlin|java|kt)?\n?(.*?)' + b3
                     blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-                    if blocks:
-                        content = max(blocks, key=len)
+                    if blocks: content = max(blocks, key=len)
                     
                     content = content.replace(b3, '')
                     content = re.sub(r'^(?:kotlin|java|kt)\b', '', content, flags=re.IGNORECASE).strip()
@@ -116,7 +132,6 @@ jobs:
                     imports = set()
                     body_lines = []
 
-                    # Gather components
                     for line in lines:
                         stripped = line.strip()
                         if stripped.startswith('package '):
@@ -126,7 +141,11 @@ jobs:
                         else:
                             body_lines.append(line)
 
-                    # Strip AI conversational garbage from the top
+                    # Auto-inject Timber import if missing
+                    body_text = '\n'.join(body_lines)
+                    if 'Timber.' in body_text and 'import timber.log.Timber' not in '\n'.join(imports):
+                        imports.add('import timber.log.Timber')
+
                     start_idx = 0
                     for i, line in enumerate(body_lines):
                         stripped = line.strip()
@@ -142,7 +161,6 @@ jobs:
 
                     body_lines = body_lines[start_idx:]
 
-                    # Infer package if missing
                     if not package_line:
                         pkg_path = ""
                         if 'java/' in path: pkg_path = path.split('java/')[1]
@@ -152,7 +170,6 @@ jobs:
                             pkg_name = pkg_dir.replace('/', '.').replace('\\', '.')
                             if pkg_name: package_line = f"package {pkg_name}"
 
-                    # Rebuild file strictly
                     final_content = []
                     if package_line:
                         final_content.append(package_line)
@@ -175,8 +192,6 @@ jobs:
         import os, re
 
         src_dir = 'openwave/android/app/src/main/java'
-
-        # 1. Gather all known classes to avoid creating duplicates
         all_classes = set()
         for r, d, files in os.walk(src_dir):
             for f in files:
@@ -188,7 +203,6 @@ jobs:
                                 all_classes.add(match.group(1))
                     except: pass
 
-        # 2. Find AppDatabase.kt
         db_path = None
         for r, d, files in os.walk(src_dir):
             if 'AppDatabase.kt' in files:
@@ -201,8 +215,7 @@ jobs:
 
             db_pkg = "com.openwave.app.data.local"
             pkg_match = re.search(r'^package\s+([a-zA-Z0-9_.]+)', content, re.MULTILINE)
-            if pkg_match:
-                db_pkg = pkg_match.group(1)
+            if pkg_match: db_pkg = pkg_match.group(1)
 
             imports = {}
             for imp in re.findall(r'^import\s+([a-zA-Z0-9_.]+)', content, re.MULTILINE):
@@ -213,31 +226,24 @@ jobs:
             missing_converters = []
             missing_daos = []
 
-            # Extract Entities from @Database
             entities_match = re.search(r'@Database\s*\(\s*entities\s*=\s*[\[\{](.*?)[\]\}]', content, re.DOTALL)
             if entities_match:
                 for e in entities_match.group(1).split(','):
                     c_clean = re.sub(r'::class(\.java)?|\.class', '', e).strip()
                     if '.' in c_clean: c_clean = c_clean.split('.')[-1]
-                    if c_clean and c_clean not in all_classes:
-                        missing_entities.append(c_clean)
+                    if c_clean and c_clean not in all_classes: missing_entities.append(c_clean)
 
-            # Extract Converters from @TypeConverters
             converters_match = re.search(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', content, re.DOTALL)
             if converters_match:
                 for c in converters_match.group(1).split(','):
                     c_clean = re.sub(r'::class(\.java)?|\.class', '', c).strip()
                     if '.' in c_clean: c_clean = c_clean.split('.')[-1]
-                    if c_clean and c_clean not in all_classes:
-                        missing_converters.append(c_clean)
+                    if c_clean and c_clean not in all_classes: missing_converters.append(c_clean)
 
-            # Extract DAOs
             for dao_match in re.finditer(r'abstract\s+(?:fun|val)\s+[a-zA-Z0-9_]+\s*(?:\(\s*\))?\s*:\s*([a-zA-Z0-9_]+)', content):
                 dao_name = dao_match.group(1)
-                if dao_name not in all_classes:
-                    missing_daos.append(dao_name)
+                if dao_name not in all_classes: missing_daos.append(dao_name)
 
-            # Function to safely create missing files
             def create_missing(class_name, c_type):
                 expected_pkg = db_pkg
                 if class_name in imports:
@@ -257,9 +263,7 @@ jobs:
                 elif c_type == 'dao':
                     code += f"import androidx.room.Dao\n\n@Dao\ninterface {class_name} {{\n}}\n"
 
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(code)
-                print(f"SuperHealer: Generated missing {c_type}: {class_name} in {expected_pkg}")
+                with open(file_path, 'w', encoding='utf-8') as f: f.write(code)
 
             for e in missing_entities: create_missing(e, 'entity')
             for c in missing_converters: create_missing(c, 'converter')
