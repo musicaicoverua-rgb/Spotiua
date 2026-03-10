@@ -94,12 +94,6 @@ jobs:
                         
                         # 1. Знаходимо всі блоки коду Markdown (```kotlin ... ```)
                         blocks = re.findall(r'
-http://googleusercontent.com/immersive_entry_chip/0
+
 
 ### Що вам треба зробити:
-1. Замініть код у **`build.yml`**.
-2. Натисніть **Commit changes**.
-3. Запустіть **Run workflow**.
-
-Цей новий крок "Ultimate AI Code Sterilizer" гарантує, що компілятор побачить ідеально чистий код, ніби його написав живий програміст, а не розмовний бот. Ми на самій фінішній прямій, натискайте Run!
-
