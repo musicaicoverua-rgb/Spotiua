@@ -22,42 +22,39 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Prepare Local Project
+    - name: Prepare and Destroy Bugs
       run: |
-        # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 2. Виправляємо налаштування Android
+        # 1. Фікс системних налаштувань Gradle
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # 3. Видаляємо локальну помилку Kimi (Ця частина працює ідеально)
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/username_optional/d' {} + || true
+        # 2. Фікс бага Kimi (Ми вже бачили, що це працює і видаляє username_optional)
         find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/{str}/d' {} + || true
-
-    - name: First Build (Prime the Cache)
-      # Цей крок спеціально проігнорує помилку, щоб просто завантажити файли Google на сервер
-      continue-on-error: true
-      run: |
-        cd openwave/android
-        gradle assembleDebug || true
-
-    - name: The Nuclear Option (Overwrite Google's Bug)
-      run: |
-        echo "Зупиняємо Gradle, щоб розблокувати системні файли..."
-        cd openwave/android
-        gradle --stop
         
-        echo "Перезаписуємо зламаний український переклад на чистий і легальний XML..."
-        # Замість спроб щось вирізати, ми просто заливаємо туди порожній скелет <resources></resources>
-        find /home/runner/.gradle/caches/transforms-3 -type f -name "values-uk.xml" -exec sh -c 'echo "<?xml version=\"1.0\" encoding=\"utf-8\"?><resources></resources>" > "$1"' _ {} \;
+        # 3. ФІКС БАГА GOOGLE (Оновлюємо Media3 до чистої версії 1.3.1)
+        # Якщо Kimi використав сучасний каталог версій (TOML), оновлюємо версію там:
+        find openwave/android -name "*.toml" -type f -exec sed -i 's/"1.2.0"/"1.3.1"/g' {} + || true
         
-        echo "Операція успішна! Кеш вилікувано."
+        # Ставимо жорсткий блок в кінці головного файлу додатку. 
+        # Це наказує Gradle ігнорувати все і качати тільки виправлену версію 1.3.1
+        cat << 'EOF' >> openwave/android/app/build.gradle.kts
+        
+        configurations.all {
+            resolutionStrategy {
+                force("androidx.media3:media3-common:1.3.1")
+                force("androidx.media3:media3-session:1.3.1")
+                force("androidx.media3:media3-exoplayer:1.3.1")
+                force("androidx.media3:media3-ui:1.3.1")
+            }
+        }
+        EOF
 
-    - name: Final Build (Success)
+    - name: Final Build
       run: |
         cd openwave/android
-        # Тепер Android побачить ідеально чистий файл і збере APK без жодних питань
+        # Тепер Gradle скачає правильну бібліотеку, де український переклад не зламано!
         gradle assembleDebug
 
     - name: Upload APK
