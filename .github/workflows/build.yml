@@ -22,34 +22,36 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Prepare Project
+    - name: Prepare and Patch
       run: |
-        # Розпаковуємо архів
+        # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # Виправляємо налаштування репозиторіїв та мов
+        # 2. Виправляємо репозиторії та мови
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
-
-    - name: First Build Attempt (Populate Cache)
-      # Цей крок СПЕЦІАЛЬНО має впасти з помилкою, щоб завантажити зламану бібліотеку на сервер
-      continue-on-error: true
-      run: |
-        cd openwave/android
-        gradle assembleDebug
-
-    - name: The Bulldozer (Nuke Broken XML Lines)
-      run: |
-        # 1. Жорстко вирізаємо помилку Kimi з ваших локальних файлів
+        
+        # 3. ВИПРАВЛЯЄМО ЛОКАЛЬНІ ПОМИЛКИ KIMI (Це спрацювало минулого разу!)
         find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/username_optional/d' {} + || true
         find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/{str}/d' {} + || true
         
-        # 2. Жорстко вирізаємо помилку Google з прихованого кешу сервера
-        find /home/runner/.gradle/caches/transforms-3 -name "*.xml" -type f -exec sed -i '/artist_name/d' {} + || true
-        find /home/runner/.gradle/caches/transforms-3 -name "*.xml" -type f -exec sed -i '/{str}/d' {} + || true
+        # 4. СУВОРИЙ НАКАЗ GRADLE: Блокуємо зламану версію Google 1.2.0
+        # Додаємо глобальну стратегію вирішення залежностей у корінь проекту
+        cat << 'EOF' >> openwave/android/build.gradle.kts
+        
+        allprojects {
+            configurations.all {
+                resolutionStrategy {
+                    force("androidx.media3:media3-common:1.1.1")
+                    force("androidx.media3:media3-exoplayer:1.1.1")
+                    force("androidx.media3:media3-session:1.1.1")
+                    force("androidx.media3:media3-ui:1.1.1")
+                }
+            }
+        }
+        EOF
 
-    - name: Final Build (Success)
-      # Тепер, коли всі зламані рядки видалено, збірка 100% пройде
+    - name: Build APK
       run: |
         cd openwave/android
         gradle assembleDebug
