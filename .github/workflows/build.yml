@@ -22,7 +22,7 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: STEP 1 - Project Sterilization & Supabase Deps
+    - name: STEP 1 - Project Sterilization & Dependencies
       run: |
         unzip -q -o "Kimi_Agent_OpenWave Native Music App.zip"
         
@@ -40,10 +40,9 @@ jobs:
             implementation("androidx.media3:media3-common:1.3.1")
             implementation("androidx.media3:media3-ui:1.3.1")
             implementation("androidx.media:media:1.7.0")
-            implementation("com.jakewharton.timber:timber:5.0.1")
             implementation("com.google.code.gson:gson:2.10.1")
             
-            // Supabase Auth & Storage
+            // Supabase Auth & Storage (Backend)
             implementation(platform("io.github.jan-tennert.supabase:bom:2.1.3"))
             implementation("io.github.jan-tennert.supabase:storage-kt")
             implementation("io.github.jan-tennert.supabase:gotrue-kt")
@@ -52,7 +51,7 @@ jobs:
         }
         EOF
 
-    - name: STEP 2 - Manifest & Resources
+    - name: STEP 2 - Manifest & Resources (Permissions)
       run: |
         RES_DIR="openwave/android/app/src/main/res"
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
@@ -92,38 +91,146 @@ jobs:
         </manifest>
         EOF
 
-    - name: STEP 3 - Real Supabase Backend Integration (Safe Strings)
+    - name: STEP 3 - BLOCK 1 (Core Models & Database)
       run: |
         python3 - <<'EOF'
         import os, shutil
-        src_dir = 'openwave/android/app/src/main/java'
-        base_pkg = "com.openwave.app"
-        
-        for r, d, f in os.walk(src_dir):
-            if 'AppDatabase.kt' in f:
-                with open(os.path.join(r, 'AppDatabase.kt'), 'r') as db_f:
-                    for line in db_f:
-                        if line.startswith('package'):
-                            pkg_str = line.replace('package ', '').strip()
-                            base_pkg = pkg_str.split('.data')[0] if '.data' in pkg_str else pkg_str.split('.domain')[0]
-                            break
+        pkg_dir = 'openwave/android/app/src/main/java/com/openwave/app'
+        if os.path.exists(pkg_dir): shutil.rmtree(pkg_dir)
+        os.makedirs(os.path.join(pkg_dir, 'domain/model'), exist_ok=True)
+        os.makedirs(os.path.join(pkg_dir, 'data/local'), exist_ok=True)
 
-        pkg_path = os.path.join(src_dir, base_pkg.replace('.', '/'))
-        if os.path.exists(pkg_path): shutil.rmtree(pkg_path)
-        os.makedirs(pkg_path, exist_ok=True)
+        def save(path, content):
+            with open(os.path.join(pkg_dir, path), 'w') as f: f.write(content.replace("BASE_PKG", "com.openwave.app"))
 
-        def save(path_list, body):
-            full = os.path.join(pkg_path, *path_list)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            with open(full, 'w') as f: f.write(body.replace("BASE_PKG", base_pkg))
-
-        save(['MainActivity.kt'], """package BASE_PKG
+        save('domain/model/TrackItem.kt', """package BASE_PKG.domain.model
         import android.net.Uri
-        import android.os.Bundle
+        data class TrackItem(val title: String, val url: String, val isLocal: Boolean = false, val uri: Uri? = null)
+        """)
+
+        save('data/local/DummyEntity.kt', """package BASE_PKG.data.local
+        import androidx.room.*
+        @Entity data class DummyEntity(@PrimaryKey val id: Int = 0)
+        """)
+
+        save('data/local/AppDatabase.kt', """package BASE_PKG.data.local
+        import androidx.room.*
+        @Database(entities = [DummyEntity::class], version = 1, exportSchema = false)
+        abstract class AppDatabase : RoomDatabase() {}
+        """)
+        EOF
+
+    - name: STEP 4 - BLOCK 2 (Supabase Remote Backend)
+      run: |
+        python3 - <<'EOF'
+        import os
+        pkg_dir = 'openwave/android/app/src/main/java/com/openwave/app'
+        os.makedirs(os.path.join(pkg_dir, 'data/remote'), exist_ok=True)
+
+        def save(path, content):
+            with open(os.path.join(pkg_dir, path), 'w') as f: f.write(content.replace("BASE_PKG", "com.openwave.app"))
+
+        save('data/remote/SupabaseManager.kt', """package BASE_PKG.data.remote
+        import BASE_PKG.domain.model.TrackItem
+        import io.github.jan.supabase.createSupabaseClient
+        import io.github.jan.supabase.storage.Storage
+        import io.github.jan.supabase.storage.storage
+        import kotlinx.coroutines.Dispatchers
+        import kotlinx.coroutines.withContext
+
+        object SupabaseManager {
+            private const val URL = "[https://nmowlkjoragnffkxbrzq.supabase.co](https://nmowlkjoragnffkxbrzq.supabase.co)"
+            private const val KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tb3dsa2pvcmFnbmZma3hicnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTYyNjcsImV4cCI6MjA4ODY3MjI2N30.yNHTyZfXOjy-lJNxCOm8F9_YVGWF6kGWmueFYBHTfI0"
+
+            val client = createSupabaseClient(URL, KEY) {
+                install(Storage)
+            }
+
+            suspend fun getTracks(): List<TrackItem> = withContext(Dispatchers.IO) {
+                try {
+                    val bucket = client.storage.from("tracks")
+                    val files = bucket.list()
+                    val validFiles = files.filter { it.name.endsWith(".mp3") }
+                    validFiles.map { file ->
+                        TrackItem(title = file.name, url = bucket.publicUrl(file.name))
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+
+            suspend fun uploadTrack(fileName: String, bytes: ByteArray) = withContext(Dispatchers.IO) {
+                val bucket = client.storage.from("tracks")
+                bucket.upload(fileName, bytes)
+            }
+        }
+        """)
+        EOF
+
+    - name: STEP 5 - BLOCK 3 (UI Presentation & MainActivity)
+      run: |
+        python3 - <<'EOF'
+        import os
+        pkg_dir = 'openwave/android/app/src/main/java/com/openwave/app'
+        os.makedirs(os.path.join(pkg_dir, 'presentation'), exist_ok=True)
+
+        def save(path, content):
+            with open(os.path.join(pkg_dir, path), 'w') as f: f.write(content.replace("BASE_PKG", "com.openwave.app"))
+
+        save('presentation/LoginScreen.kt', """package BASE_PKG.presentation
+        import android.widget.Toast
+        import androidx.compose.foundation.layout.*
+        import androidx.compose.material3.*
+        import androidx.compose.runtime.*
+        import androidx.compose.ui.Alignment
+        import androidx.compose.ui.Modifier
+        import androidx.compose.ui.platform.LocalContext
+        import androidx.compose.ui.text.input.PasswordVisualTransformation
+        import androidx.compose.ui.unit.dp
+
+        @Composable
+        fun LoginScreen(onLoginAsUser: () -> Unit, onLoginAsAdmin: () -> Unit) {
+            val context = LocalContext.current
+            var password by remember { mutableStateOf("") }
+            var showAdmin by remember { mutableStateOf(false) }
+
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("OpenWave", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
+                Text("Supabase Backend Active ☁️", style = MaterialTheme.typography.bodyLarge)
+                Spacer(modifier = Modifier.height(48.dp))
+
+                if (!showAdmin) {
+                    Button(onClick = onLoginAsUser, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Увійти як Слухач") }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TextButton(onClick = { showAdmin = true }) { Text("Я Адміністратор", color = MaterialTheme.colorScheme.secondary) }
+                } else {
+                    OutlinedTextField(
+                        value = password, onValueChange = { password = it },
+                        label = { Text("Пароль Адміна") }, visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            if (password == "admin777") onLoginAsAdmin()
+                            else Toast.makeText(context, "Невірний пароль", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) { Text("Увійти") }
+                    TextButton(onClick = { showAdmin = false }) { Text("Назад") }
+                }
+            }
+        }
+        """)
+
+        save('presentation/MusicPlayerScreen.kt', """package BASE_PKG.presentation
+        import android.net.Uri
         import android.provider.OpenableColumns
         import android.widget.Toast
-        import androidx.activity.ComponentActivity
-        import androidx.activity.compose.setContent
         import androidx.activity.compose.rememberLauncherForActivityResult
         import androidx.activity.result.contract.ActivityResultContracts
         import androidx.compose.foundation.clickable
@@ -135,187 +242,67 @@ jobs:
         import androidx.compose.ui.Alignment
         import androidx.compose.ui.Modifier
         import androidx.compose.ui.platform.LocalContext
-        import androidx.compose.ui.text.input.PasswordVisualTransformation
         import androidx.compose.ui.unit.dp
         import androidx.media3.common.AudioAttributes
         import androidx.media3.common.C
         import androidx.media3.common.MediaItem
         import androidx.media3.common.Player
         import androidx.media3.exoplayer.ExoPlayer
-        import kotlinx.coroutines.Dispatchers
         import kotlinx.coroutines.launch
-        import kotlinx.coroutines.withContext
-        import io.github.jan.supabase.createSupabaseClient
-        import io.github.jan.supabase.storage.Storage
-        import io.github.jan.supabase.storage.storage
-
-        val supabaseUrl = "[https://nmowlkjoragnffkxbrzq.supabase.co](https://nmowlkjoragnffkxbrzq.supabase.co)"
-        val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tb3dsa2pvcmFnbmZma3hicnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTYyNjcsImV4cCI6MjA4ODY3MjI2N30.yNHTyZfXOjy-lJNxCOm8F9_YVGWF6kGWmueFYBHTfI0"
-
-        val supabase = createSupabaseClient(supabaseUrl, supabaseKey) {
-            install(Storage)
-        }
-
-        class MainActivity : ComponentActivity() {
-            override fun onCreate(savedInstanceState: Bundle?) {
-                super.onCreate(savedInstanceState)
-                setContent {
-                    MaterialTheme(colorScheme = darkColorScheme()) {
-                        Surface(modifier = Modifier.fillMaxSize()) {
-                            AppNavigator()
-                        }
-                    }
-                }
-            }
-        }
-
-        data class TrackItem(val title: String, val url: String)
+        import BASE_PKG.domain.model.TrackItem
+        import BASE_PKG.data.remote.SupabaseManager
 
         @Composable
-        fun AppNavigator() {
-            var currentScreen by remember { mutableStateOf("LOGIN") }
-            var isAdmin by remember { mutableStateOf(false) }
-
-            when (currentScreen) {
-                "LOGIN" -> LoginScreen(
-                    onLoginAsUser = { isAdmin = false; currentScreen = "MUSIC" },
-                    onLoginAsAdmin = { isAdmin = true; currentScreen = "MUSIC" }
-                )
-                "MUSIC" -> MusicAppUI(isAdmin = isAdmin, onLogout = { currentScreen = "LOGIN" })
-            }
-        }
-
-        @Composable
-        fun LoginScreen(onLoginAsUser: () -> Unit, onLoginAsAdmin: () -> Unit) {
+        fun MusicPlayerScreen(isAdmin: Boolean, onLogout: () -> Unit) {
             val context = LocalContext.current
-            var password by remember { mutableStateOf("") }
-            var showAdminLogin by remember { mutableStateOf(false) }
-
-            Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("OpenWave", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
-                Text("Supabase Connected", style = MaterialTheme.typography.bodyLarge)
-                Spacer(modifier = Modifier.height(48.dp))
-
-                if (!showAdminLogin) {
-                    Button(onClick = onLoginAsUser, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-                        Text("Увійти як Слухач")
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    TextButton(onClick = { showAdminLogin = true }) {
-                        Text("Я Адміністратор", color = MaterialTheme.colorScheme.secondary)
-                    }
-                } else {
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Пароль Адміна") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            if (password == "admin777") {
-                                onLoginAsAdmin()
-                            } else {
-                                Toast.makeText(context, "Невірний пароль!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                    ) {
-                        Text("Увійти")
-                    }
-                    TextButton(onClick = { showAdminLogin = false }) { Text("Назад") }
-                }
-            }
-        }
-
-        @Composable
-        fun MusicAppUI(isAdmin: Boolean, onLogout: () -> Unit) {
-            val context = LocalContext.current
-            val coroutineScope = rememberCoroutineScope()
+            val scope = rememberCoroutineScope()
             
             var isPlaying by remember { mutableStateOf(false) }
-            var currentTrackName by remember { mutableStateOf("Оберіть пісню") }
-            var isUploading by remember { mutableStateOf(false) }
+            var currentTrack by remember { mutableStateOf("Оберіть пісню") }
             var isLoading by remember { mutableStateOf(true) }
+            var isUploading by remember { mutableStateOf(false) }
             var tracks by remember { mutableStateOf(listOf<TrackItem>()) }
 
             val exoPlayer = remember {
                 ExoPlayer.Builder(context).build().apply {
-                    val audioAttributes = AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build()
-                    setAudioAttributes(audioAttributes, true)
+                    val attrs = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
+                    setAudioAttributes(attrs, true)
                     addListener(object : Player.Listener {
-                        override fun onIsPlayingChanged(isPlayingState: Boolean) { isPlaying = isPlayingState }
+                        override fun onIsPlayingChanged(state: Boolean) { isPlaying = state }
                     })
                 }
             }
             DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
 
-            fun fetchTracksFromCloud() {
+            fun loadTracks() {
                 isLoading = true
-                coroutineScope.launch(Dispatchers.IO) {
-                    try {
-                        val bucket = supabase.storage.from("tracks")
-                        val files = bucket.list()
-                        val newTracks = files.map { file ->
-                            TrackItem(title = file.name, url = bucket.publicUrl(file.name))
-                        }.filter { it.title.endsWith(".mp3") }
-                        
-                        withContext(Dispatchers.Main) {
-                            tracks = newTracks
-                            isLoading = false
-                        }
-                    } catch (e: Exception) {
-                        withContext(Dispatchers.Main) {
-                            isLoading = false
-                        }
-                    }
+                scope.launch {
+                    tracks = SupabaseManager.getTracks()
+                    isLoading = false
                 }
             }
+            LaunchedEffect(Unit) { loadTracks() }
 
-            LaunchedEffect(Unit) { fetchTracksFromCloud() }
-
-            val filePickerLauncher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.GetContent()
-            ) { uri: Uri? ->
+            val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
                 uri?.let {
                     var fileName = "new_track.mp3"
                     context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
                         val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (cursor.moveToFirst() && nameIndex >= 0) {
-                            fileName = cursor.getString(nameIndex)
-                        }
+                        if (cursor.moveToFirst() && nameIndex >= 0) fileName = cursor.getString(nameIndex)
                     }
-
                     isUploading = true
-                    coroutineScope.launch(Dispatchers.IO) {
+                    scope.launch {
                         try {
                             val bytes = context.contentResolver.openInputStream(it)?.use { stream -> stream.readBytes() }
                             if (bytes != null) {
-                                val bucket = supabase.storage.from("tracks")
-                                bucket.upload(fileName, bytes)
-                                
-                                withContext(Dispatchers.Main) {
-                                    Toast.makeText(context, "Трек " + fileName + " завантажено!", Toast.LENGTH_LONG).show()
-                                    fetchTracksFromCloud()
-                                }
+                                SupabaseManager.uploadTrack(fileName, bytes)
+                                Toast.makeText(context, "Трек успішно завантажено!", Toast.LENGTH_SHORT).show()
+                                loadTracks()
                             }
                         } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                val err = e.message ?: "Невідома помилка"
-                                Toast.makeText(context, "Помилка: " + err, Toast.LENGTH_LONG).show()
-                            }
+                            Toast.makeText(context, "Помилка завантаження", Toast.LENGTH_LONG).show()
                         } finally {
-                            withContext(Dispatchers.Main) { isUploading = false }
+                            isUploading = false
                         }
                     }
                 }
@@ -323,20 +310,17 @@ jobs:
 
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isAdmin) "Панель Адміна" else "Слухач", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(if (isAdmin) "Адмін 👑" else "Слухач 🎧", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
                     TextButton(onClick = { exoPlayer.stop(); onLogout() }) { Text("Вихід", color = MaterialTheme.colorScheme.error) }
                 }
-                
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 if (isAdmin) {
                     Button(
-                        onClick = { filePickerLauncher.launch("audio/*") }, 
+                        onClick = { filePicker.launch("audio/*") },
                         modifier = Modifier.fillMaxWidth().height(55.dp),
                         enabled = !isUploading
-                    ) {
-                        Text(if (isUploading) "Відправка в Хмару..." else "Завантажити MP3 в Supabase")
-                    }
+                    ) { Text(if (isUploading) "Завантаження в Хмару..." else "➕ Завантажити MP3") }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
@@ -351,53 +335,64 @@ jobs:
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         items(tracks) { track ->
                             Card(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { 
-                                    currentTrackName = track.title
-                                    val mediaItem = MediaItem.fromUri(track.url)
-                                    exoPlayer.setMediaItem(mediaItem)
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
+                                    currentTrack = track.title
+                                    exoPlayer.setMediaItem(MediaItem.fromUri(track.url))
                                     exoPlayer.prepare()
                                     exoPlayer.play()
                                 },
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Play ")
-                                    Text(text = track.title)
-                                }
-                            }
+                            ) { Row(modifier = Modifier.padding(16.dp)) { Text("☁️ " + track.title) } }
                         }
                     }
                 }
-
                 Spacer(modifier = Modifier.weight(1f))
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(), 
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Зараз грає", style = MaterialTheme.typography.labelSmall)
-                            Text(currentTrackName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                            Text(currentTrack, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                         }
-                        Button(onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() }) {
-                            Text(if (isPlaying) "Pause" else "Play")
-                        }
+                        Button(onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() }) { Text(if (isPlaying) "Pause" else "Play") }
                     }
                 }
             }
         }
         """)
 
-        save(['data', 'local', 'DummyEntity.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\n@Entity data class DummyEntity(@PrimaryKey val id: Int = 0)")
-        save(['data', 'local', 'AppDatabase.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\n@Database(entities = [DummyEntity::class], version = 1, exportSchema = false)\nabstract class AppDatabase : RoomDatabase() {}")
+        save('presentation/AppNavigator.kt', """package BASE_PKG.presentation
+        import androidx.compose.runtime.*
 
-        EOF
+        @Composable
+        fun AppNavigator() {
+            var currentScreen by remember { mutableStateOf("LOGIN") }
+            var isAdmin by remember { mutableStateOf(false) }
 
-    - name: STEP 4 - Clean Build
-      run: |
-     
+            when (currentScreen) {
+                "LOGIN" -> LoginScreen(
+                    onLoginAsUser = { isAdmin = false; currentScreen = "MUSIC" },
+                    onLoginAsAdmin = { isAdmin = true; currentScreen = "MUSIC" }
+                )
+                "MUSIC" -> MusicPlayerScreen(isAdmin = isAdmin, onLogout = { currentScreen = "LOGIN" })
+            }
+        }
+        """)
+
+        save('MainActivity.kt', """package BASE_PKG
+        import android.os.Bundle
+        import androidx.activity.ComponentActivity
+        import androidx.activity.compose.setContent
+        import androidx.compose.foundation.layout.fillMaxSize
+        import androidx.compose.material3.MaterialTheme
+        import androidx.compose.material3.Surface
+        import androidx.compose.material3.darkColorScheme
+        import androidx.compose.ui.Modifier
+        import BASE_PKG.presentation.AppNavigator
+
+        class MainActivity : ComponentActivity() {
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                setContent {
+                    MaterialTheme(colorScheme = darkColorScheme()) {
+                        Surface(modifier = Modifier.fillMaxSize()) {
+                            AppNav
