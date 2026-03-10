@@ -98,125 +98,60 @@ jobs:
         EOF
         echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
         
-        V_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
+        V_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
         for i in play pause previous next ic_download ic_download_complete ic_download_error ic_notification ic_previous ic_pause ic_play ic_next; do
             echo "$V_XML" > "$RES_DIR/drawable/${i}.xml"
         done
         
-        echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
+        echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
     - name: STEP 3 - The Hard Reset (Rewriting Broken Files)
       run: |
         echo "Completely rewriting corrupted AI files..."
         python3 - <<'EOF'
-        import os
+        import os, re
 
-        # Helper to safely extract package from AppDatabase.kt
         src_dir = 'openwave/android/app/src/main/java'
         base_pkg = "com.openwave.app"
         
+        # 1. Detect base package
         for r, d, f in os.walk(src_dir):
             if 'AppDatabase.kt' in f:
                 with open(os.path.join(r, 'AppDatabase.kt'), 'r') as db_f:
                     for line in db_f:
                         if line.startswith('package'):
-                            # Try to extract base package
                             pkg_str = line.replace('package ', '').strip()
-                            if '.data' in pkg_str:
-                                base_pkg = pkg_str.split('.data')[0]
+                            if '.data' in pkg_str: base_pkg = pkg_str.split('.data')[0]
+                            elif '.domain' in pkg_str: base_pkg = pkg_str.split('.domain')[0]
                             break
 
-        # FILE 1: Track.kt
+        # 2. FILE 1: Track.kt
         track_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/Track.kt')
         os.makedirs(os.path.dirname(track_path), exist_ok=True)
         with open(track_path, 'w') as f:
-            f.write(f"""package {base_pkg}.domain.model
+            f.write(f"package {base_pkg}.domain.model\n\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\ndata class Track(\n    val id: String = \"\",\n    val title: String = \"Unknown Title\",\n    val artist: String = \"Unknown Artist\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val duration: Long = 0L\n) : Parcelable\n")
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
-
-@Parcelize
-data class Track(
-    val id: String = "",
-    val title: String = "Unknown Title",
-    val artist: String = "Unknown Artist",
-    val coverUrl: String = "",
-    val streamUrl: String = "",
-    val duration: Long = 0L
-) : Parcelable
-""")
-
-        # FILE 2: OfflineDownload.kt (Entity)
+        # 3. FILE 2: OfflineDownload.kt (Entity)
         dl_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownload.kt')
         os.makedirs(os.path.dirname(dl_path), exist_ok=True)
         with open(dl_path, 'w') as f:
-            f.write(f"""package {base_pkg}.data.local
+            f.write(f"package {base_pkg}.data.local\n\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\n@Entity(tableName = \"offline_downloads\")\ndata class OfflineDownload(\n    @PrimaryKey val id: String = \"\",\n    val trackId: String = \"\",\n    val filePath: String = \"\",\n    val isComplete: Boolean = false,\n    val progress: Int = 0\n) : Parcelable\n")
 
-import android.os.Parcelable
-import androidx.room.Entity
-import androidx.room.PrimaryKey
-import kotlinx.parcelize.Parcelize
-
-@Parcelize
-@Entity(tableName = "offline_downloads")
-data class OfflineDownload(
-    @PrimaryKey val id: String = "",
-    val trackId: String = "",
-    val filePath: String = "",
-    val isComplete: Boolean = false,
-    val progress: Int = 0
-) : Parcelable
-""")
-
-        # FILE 3: OfflineDownloadDao.kt
+        # 4. FILE 3: OfflineDownloadDao.kt
         dao_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownloadDao.kt')
         os.makedirs(os.path.dirname(dao_path), exist_ok=True)
         with open(dao_path, 'w') as f:
-            f.write(f"""package {base_pkg}.data.local
+            f.write(f"package {base_pkg}.data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface OfflineDownloadDao {{\n    @Query(\"SELECT * FROM offline_downloads\")\n    fun getAllDownloads(): Flow<List<OfflineDownload>>\n\n    @Query(\"SELECT * FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun getDownloadByTrackId(trackId: String): OfflineDownload?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertDownload(download: OfflineDownload)\n\n    @Query(\"DELETE FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun deleteDownload(trackId: String)\n}}\n")
 
-import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import kotlinx.coroutines.flow.Flow
-
-@Dao
-interface OfflineDownloadDao {{
-    @Query("SELECT * FROM offline_downloads")
-    fun getAllDownloads(): Flow<List<OfflineDownload>>
-
-    @Query("SELECT * FROM offline_downloads WHERE trackId = :trackId")
-    suspend fun getDownloadByTrackId(trackId: String): OfflineDownload?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertDownload(download: OfflineDownload)
-
-    @Query("DELETE FROM offline_downloads WHERE trackId = :trackId")
-    suspend fun deleteDownload(trackId: String)
-}}
-""")
-
-        # FILE 4: User.kt
+        # 5. FILE 4: User.kt
         user_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/User.kt')
         os.makedirs(os.path.dirname(user_path), exist_ok=True)
         with open(user_path, 'w') as f:
-            f.write(f"""package {base_pkg}.domain.model
+            f.write(f"package {base_pkg}.domain.model\n\ndata class User(\n    val id: String = \"\",\n    val username: String = \"\",\n    val profilePicUrl: String = \"\"\n)\n\nenum class ItemType {{\n    TRACK,\n    PLAYLIST,\n    ALBUM\n}}\n")
 
-data class User(
-    val id: String = "",
-    val username: String = "",
-    val profilePicUrl: String = ""
-)
-
-enum class ItemType {{
-    TRACK,
-    PLAYLIST,
-    ALBUM
-}}
-""")
-
-        # General Cleanup for the rest of the files (Just taking the biggest block)
+        # 6. General Cleanup for the rest of the files
+        b3 = chr(96) * 3  # Avoids markdown parser breaking
         for root, dirs, files in os.walk(src_dir):
             for name in files:
                 if not (name.endswith('.kt') or name.endswith('.java')): continue
@@ -225,10 +160,9 @@ enum class ItemType {{
                 p = os.path.join(root, name)
                 try:
                     with open(p, 'r', encoding='utf-8') as file: raw = file.read()
-                    
-                    if '```' in raw:
-                        import re
-                        blocks = re.findall(r'                         if blocks:
+                    if b3 in raw:
+                        blocks = re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw, re.DOTALL | re.IGNORECASE)
+                        if blocks:
                             cleaned = max(blocks, key=len)
                             with open(p, 'w', encoding='utf-8') as out: out.write(cleaned)
                 except: pass
@@ -258,8 +192,8 @@ enum class ItemType {{
         if db_file:
             with open(db_file, 'r') as f: content = f.read()
             pkg_m = re.search(r'^package\s+(.*)', content, re.M)
-            if pkg_match:
-                pkg = pkg_match.group(1).strip()
+            if pkg_m:
+                pkg = pkg_m.group(1).strip()
                 def mk(rx, t):
                     for i in re.findall(rx, content, re.S):
                         for name in re.split(r',\s*', i):
