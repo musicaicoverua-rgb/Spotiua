@@ -26,16 +26,16 @@ jobs:
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 1. Fix Repositories
+        # Fix Repositories
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # 2. Add Parcelize plugin
+        # Add Parcelize plugin
         if ! grep -q "kotlin-parcelize" openwave/android/app/build.gradle.kts; then
           sed -i '/id("com.android.application")/a \    id("kotlin-parcelize")' openwave/android/app/build.gradle.kts
         fi
         
-        # 3. Inject missing dependencies & XML Unicode Fix
+        # Inject dependencies
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         
         dependencies {
@@ -73,9 +73,8 @@ jobs:
         }
         EOF
 
-    - name: STEP 2 - Missing UI & String Generator
+    - name: STEP 2 - UI & Resource Generator
       run: |
-        echo "Creating missing icons, themes and strings..."
         RES_DIR="openwave/android/app/src/main/res"
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         
@@ -107,139 +106,126 @@ jobs:
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - The Ultimate Code Healer (TODO Injection & Brace Sync)
+    - name: STEP 3 - The Hard Reset (Rewriting Broken Files)
       run: |
-        echo "Injecting TODOs for AI placeholders to guarantee AST stability..."
+        echo "Completely rewriting corrupted AI files..."
         python3 - <<'EOF'
-        import os, re
+        import os
 
-        for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
-            for f in files:
-                if not (f.endswith('.kt') or f.endswith('.java')): continue
-                path = os.path.join(root, f)
-
-                try:
-                    with open(path, 'r', encoding='utf-8') as file:
-                        raw_text = file.read()
-                    
-                    # 1. EXTRACT AND GLUE BLOCKS
-                    b3 = chr(96) * 3
-                    blocks = re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw_text, re.DOTALL | re.IGNORECASE)
-                    code = '\n\n'.join(blocks) if blocks else raw_text
-
-                    # 2. SEPARATE PACKAGE & IMPORTS
-                    pkg_m = re.search(r'^\s*package\s+([a-zA-Z0-9_.]+)', code, re.MULTILINE)
-                    pkg = pkg_m.group(0).strip() if pkg_m else ""
-                    imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code, re.MULTILINE))
-                    
-                    body = re.sub(r'^\s*package\s+.*$', '', code, flags=re.MULTILINE)
-                    body = re.sub(r'^\s*import\s+.*$', '', body, flags=re.MULTILINE)
-
-                    # 3. FIX AI CHATTER & PLACEHOLDERS
-                    body = re.sub(r'//\s*\.\.\..*', '', body)
-                    body = re.sub(r'/\*.*?\.\.\..*?\*/', '', body, flags=re.DOTALL)
-                    
-                    # THE SILVER BULLET: Replace `...` with valid Kotlin code `TODO()`
-                    # This completely fixes "Expecting an element / expression" errors!
-                    body = re.sub(r'(?<!\.)\.\.\.(?!\.)', 'TODO("AI_PLACEHOLDER")', body)
-
-                    # 4. FIX COMMA AND ENUM ERRORS
-                    body = re.sub(r',\s*\)', ')', body)
-                    body = re.sub(r',\s*\}', '\n}', body)
-                    # Fix missing enum semicolons
-                    body = re.sub(r'([A-Z0-9_]+)(\s*)\n(\s*)(?=@|fun\b|val\b|var\b|override\b|companion\b)', r'\1;\2\n\3', body)
-
-                    # 5. FIX DOMAIN ENTITIES (Parcelize)
-                    body = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body)
-                    if 'data class OfflineDownload' in body:
-                        imports.update(['import kotlinx.parcelize.Parcelize', 'import android.os.Parcelable', 'import androidx.room.Entity', 'import androidx.room.PrimaryKey'])
-                        body = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body)
-                        body = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body)
-                        if '@PrimaryKey' not in body:
-                            body = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body, count=1)
-
-                    # 6. SAFE EOF BRACE BALANCING (Fixes "top level declaration" errors safely)
-                    open_p = body.count('(') - body.count(')')
-                    if open_p > 0: body += '\n' + ')' * open_p
-                    
-                    open_b = body.count('{')
-                    close_b = body.count('}')
-                    if open_b > close_b: 
-                        body += '\n' + '}' * (open_b - close_b)
-                    elif close_b > open_b:
-                        # Remove excess closing braces from the VERY END of the file
-                        excess = close_b - open_b
-                        for _ in range(excess):
-                            body = body[::-1].replace('}', '', 1)[::-1]
-
-                    # 7. REASSEMBLE
-                    if not pkg:
-                        p_parts = path.split('java/')[1] if 'java/' in path else path.split('kotlin/')[1]
-                        pkg = "package " + os.path.dirname(p_parts).replace('/', '.').replace('\\', '.')
-
-                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + body
-
-                    with open(path, 'w', encoding='utf-8') as f_out:
-                        f_out.write(final_code)
-                except Exception as e: pass
-        EOF
-
-    - name: STEP 4 - Room Database Healer
-      run: |
-        echo "Healing missing Room DB entities to ensure compilation..."
-        python3 - <<'EOF'
-        import os, re
-        src = 'openwave/android/app/src/main/java'
-        existing_classes = set()
-        for r, d, files in os.walk(src):
-            for f in files:
-                if f.endswith('.kt'):
-                    try:
-                        with open(os.path.join(r, f), 'r') as k:
-                            for m in re.finditer(r'(?:class|interface)\s+([a-zA-Z0-9_]+)', k.read()):
-                                existing_classes.add(m.group(1))
-                    except: pass
+        # Helper to safely extract package from AppDatabase.kt
+        src_dir = 'openwave/android/app/src/main/java'
+        base_pkg = "com.openwave.app"
         
-        db_file = None
-        for r, d, files in os.walk(src):
-            if 'AppDatabase.kt' in files:
-                db_file = os.path.join(r, 'AppDatabase.kt')
-                break
-        
-        if db_file:
-            with open(db_file, 'r') as f: content = f.read()
-            pkg_match = re.search(r'^package\s+(.*)', content, re.M)
-            if pkg_match:
-                pkg = pkg_match.group(1).strip()
-                def add_missing(regex, typ):
-                    m = re.search(regex, content, re.S)
-                    if m:
-                        for item in m.group(1).split(','):
-                            clean_item = re.sub(r'//.*', '', item)
-                            clean_item = re.sub(r'/\*.*?\*/', '', clean_item, flags=re.DOTALL)
-                            name = re.sub(r'::class.*|\.class', '', clean_item).strip()
-                            if '.' in name: name = name.split('.')[-1]
-                            
-                            name = re.sub(r'[^a-zA-Z0-9_]', '', name) # Absolute sanitization
-                            
-                            if name and name not in existing_classes:
-                                with open(os.path.join(os.path.dirname(db_file), f"{name}.kt"), 'w') as out:
-                                    out.write(f"package {pkg}\nimport androidx.room.*\n")
-                                    if typ == 'e': out.write(f"@Entity\ndata class {name}(@PrimaryKey val id: String = \"\")\n")
-                                    else: out.write(f"class {name} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
-                                print(f"Healed stub: {name}")
+        for r, d, f in os.walk(src_dir):
+            if 'AppDatabase.kt' in f:
+                with open(os.path.join(r, 'AppDatabase.kt'), 'r') as db_f:
+                    for line in db_f:
+                        if line.startswith('package'):
+                            # Try to extract base package
+                            pkg_str = line.replace('package ', '').strip()
+                            if '.data' in pkg_str:
+                                base_pkg = pkg_str.split('.data')[0]
+                            break
+
+        # FILE 1: Track.kt
+        track_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/Track.kt')
+        os.makedirs(os.path.dirname(track_path), exist_ok=True)
+        with open(track_path, 'w') as f:
+            f.write(f"""package {base_pkg}.domain.model
+
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
+data class Track(
+    val id: String = "",
+    val title: String = "Unknown Title",
+    val artist: String = "Unknown Artist",
+    val coverUrl: String = "",
+    val streamUrl: String = "",
+    val duration: Long = 0L
+) : Parcelable
+""")
+
+        # FILE 2: OfflineDownload.kt (Entity)
+        dl_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownload.kt')
+        os.makedirs(os.path.dirname(dl_path), exist_ok=True)
+        with open(dl_path, 'w') as f:
+            f.write(f"""package {base_pkg}.data.local
+
+import android.os.Parcelable
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
+@Entity(tableName = "offline_downloads")
+data class OfflineDownload(
+    @PrimaryKey val id: String = "",
+    val trackId: String = "",
+    val filePath: String = "",
+    val isComplete: Boolean = false,
+    val progress: Int = 0
+) : Parcelable
+""")
+
+        # FILE 3: OfflineDownloadDao.kt
+        dao_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownloadDao.kt')
+        os.makedirs(os.path.dirname(dao_path), exist_ok=True)
+        with open(dao_path, 'w') as f:
+            f.write(f"""package {base_pkg}.data.local
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface OfflineDownloadDao {{
+    @Query("SELECT * FROM offline_downloads")
+    fun getAllDownloads(): Flow<List<OfflineDownload>>
+
+    @Query("SELECT * FROM offline_downloads WHERE trackId = :trackId")
+    suspend fun getDownloadByTrackId(trackId: String): OfflineDownload?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDownload(download: OfflineDownload)
+
+    @Query("DELETE FROM offline_downloads WHERE trackId = :trackId")
+    suspend fun deleteDownload(trackId: String)
+}}
+""")
+
+        # FILE 4: User.kt
+        user_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/User.kt')
+        os.makedirs(os.path.dirname(user_path), exist_ok=True)
+        with open(user_path, 'w') as f:
+            f.write(f"""package {base_pkg}.domain.model
+
+data class User(
+    val id: String = "",
+    val username: String = "",
+    val profilePicUrl: String = ""
+)
+
+enum class ItemType {{
+    TRACK,
+    PLAYLIST,
+    ALBUM
+}}
+""")
+
+        # General Cleanup for the rest of the files (Just taking the biggest block)
+        for root, dirs, files in os.walk(src_dir):
+            for name in files:
+                if not (name.endswith('.kt') or name.endswith('.java')): continue
+                if name in ['Track.kt', 'OfflineDownload.kt', 'OfflineDownloadDao.kt', 'User.kt', 'AppDatabase.kt']: continue
                 
-                add_missing(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
-                add_missing(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
-        EOF
-
-    - name: STEP 5 - Final Build
-      run: |
-        cd openwave/android
-        gradle assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: OpenWave-Final-Build
-        path: '**/*.apk'
+                p = os.path.join(root, name)
+                try:
+                    with open(p, 'r', encoding='utf-8') as file: raw = file.read()
+                    
+                    if '```' in raw:
+                        import re
+                        blocks = re.findall(r'
