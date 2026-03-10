@@ -113,30 +113,30 @@ jobs:
         
         os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model'), exist_ok=True)
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/Track.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.domain.model\n\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\ndata class Track(\n    val id: String = \"\",\n    val title: String = \"Unknown Title\",\n    val artist: String = \"Unknown Artist\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val duration: Long = 0L\n) : Parcelable\n")
+            f.write("package " + base_pkg + ".domain.model\n\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\ndata class Track(\n    val id: String = \"\",\n    val title: String = \"Unknown Title\",\n    val artist: String = \"Unknown Artist\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val duration: Long = 0L\n) : Parcelable\n")
         
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/User.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.domain.model\n\ndata class User(\n    val id: String = \"\",\n    val username: String = \"\",\n    val profilePicUrl: String = \"\"\n)\n\nenum class ItemType {{\n    TRACK,\n    PLAYLIST,\n    ALBUM\n}}\n")
+            f.write("package " + base_pkg + ".domain.model\n\ndata class User(\n    val id: String = \"\",\n    val username: String = \"\",\n    val profilePicUrl: String = \"\"\n)\n\nenum class ItemType {\n    TRACK,\n    PLAYLIST,\n    ALBUM\n}\n")
         
         os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local'), exist_ok=True)
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownload.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.data.local\n\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\n@Entity(tableName = \"offline_downloads\")\ndata class OfflineDownload(\n    @PrimaryKey val id: String = \"\",\n    val trackId: String = \"\",\n    val filePath: String = \"\",\n    val isComplete: Boolean = false,\n    val progress: Int = 0\n) : Parcelable\n")
+            f.write("package " + base_pkg + ".data.local\n\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\n@Entity(tableName = \"offline_downloads\")\ndata class OfflineDownload(\n    @PrimaryKey val id: String = \"\",\n    val trackId: String = \"\",\n    val filePath: String = \"\",\n    val isComplete: Boolean = false,\n    val progress: Int = 0\n) : Parcelable\n")
         
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownloadDao.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface OfflineDownloadDao {{\n    @Query(\"SELECT * FROM offline_downloads\")\n    fun getAllDownloads(): Flow<List<OfflineDownload>>\n\n    @Query(\"SELECT * FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun getDownloadByTrackId(trackId: String): OfflineDownload?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertDownload(download: OfflineDownload)\n\n    @Query(\"DELETE FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun deleteDownload(trackId: String)\n}}\n")
+            f.write("package " + base_pkg + ".data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface OfflineDownloadDao {\n    @Query(\"SELECT * FROM offline_downloads\")\n    fun getAllDownloads(): Flow<List<OfflineDownload>>\n\n    @Query(\"SELECT * FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun getDownloadByTrackId(trackId: String): OfflineDownload?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertDownload(download: OfflineDownload)\n\n    @Query(\"DELETE FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun deleteDownload(trackId: String)\n}\n")
         
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/CachedTrackEntity.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.data.local\n\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity(tableName = \"cached_tracks\")\ndata class CachedTrackEntity(\n    @PrimaryKey val id: String = \"\",\n    val title: String = \"\",\n    val artist: String = \"\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val filePath: String = \"\",\n    val addedAt: Long = 0L\n)\n")
+            f.write("package " + base_pkg + ".data.local\n\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity(tableName = \"cached_tracks\")\ndata class CachedTrackEntity(\n    @PrimaryKey val id: String = \"\",\n    val title: String = \"\",\n    val artist: String = \"\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val filePath: String = \"\",\n    val addedAt: Long = 0L\n)\n")
         
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/CachedTrackDao.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface CachedTrackDao {{\n    @Query(\"SELECT * FROM cached_tracks ORDER BY addedAt DESC\")\n    fun getAllCachedTracksFlow(): Flow<List<CachedTrackEntity>>\n\n    @Query(\"SELECT * FROM cached_tracks WHERE id = :id LIMIT 1\")\n    suspend fun getCachedTrack(id: String): CachedTrackEntity?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertCachedTrack(track: CachedTrackEntity)\n\n    @Query(\"DELETE FROM cached_tracks\")\n    suspend fun deleteAllTracks()\n\n    @Query(\"DELETE FROM cached_tracks WHERE addedAt < :timestamp\")\n    suspend fun deleteOldTracks(timestamp: Long)\n}}\n")
+            f.write("package " + base_pkg + ".data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface CachedTrackDao {\n    @Query(\"SELECT * FROM cached_tracks ORDER BY addedAt DESC\")\n    fun getAllCachedTracksFlow(): Flow<List<CachedTrackEntity>>\n\n    @Query(\"SELECT * FROM cached_tracks WHERE id = :id LIMIT 1\")\n    suspend fun getCachedTrack(id: String): CachedTrackEntity?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertCachedTrack(track: CachedTrackEntity)\n\n    @Query(\"DELETE FROM cached_tracks\")\n    suspend fun deleteAllTracks()\n\n    @Query(\"DELETE FROM cached_tracks WHERE addedAt < :timestamp\")\n    suspend fun deleteOldTracks(timestamp: Long)\n}\n")
         
         os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'service'), exist_ok=True)
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'service/DownloadService.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.service\n\nimport android.app.Service\nimport android.content.Intent\nimport android.os.Build\nimport android.os.IBinder\nimport androidx.core.app.NotificationCompat\nimport {base_pkg}.R\nimport {base_pkg}.data.local.OfflineDownload\nimport {base_pkg}.data.local.OfflineDownloadDao\nimport kotlinx.coroutines.*\n\nclass DownloadService : Service() {{\n    private val serviceJob = Job()\n    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)\n    private var downloadDao: OfflineDownloadDao? = null\n\n    override fun onBind(intent: Intent?): IBinder? = null\n\n    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {{\n        val trackId = intent?.getStringExtra(\"trackId\") ?: return START_NOT_STICKY\n        val bestAudioUrl = intent.getStringExtra(\"bestAudioUrl\") ?: \"\"\n        startForeground(1, createNotification(\"Downloading...\"))\n        serviceScope.launch {{\n            val download = OfflineDownload(id = trackId, trackId = trackId, filePath = bestAudioUrl, isComplete = true, progress = 100)\n            downloadDao?.insertDownload(download)\n            stopSelf()\n        }}\n        return START_STICKY\n    }}\n\n    private fun createNotification(text: String) = NotificationCompat.Builder(this, getString(R.string.download_channel_name))\n        .setContentTitle(\"OpenWave Download\")\n        .setContentText(text)\n        .setSmallIcon(R.drawable.ic_download)\n        .build()\n\n    override fun onDestroy() {{\n        super.onDestroy()\n        serviceJob.cancel()\n    }}\n}}\n")
+            f.write("package " + base_pkg + ".service\n\nimport android.app.Service\nimport android.content.Intent\nimport android.os.Build\nimport android.os.IBinder\nimport androidx.core.app.NotificationCompat\nimport " + base_pkg + ".R\nimport " + base_pkg + ".data.local.OfflineDownload\nimport " + base_pkg + ".data.local.OfflineDownloadDao\nimport kotlinx.coroutines.*\n\nclass DownloadService : Service() {\n    private val serviceJob = Job()\n    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)\n    private var downloadDao: OfflineDownloadDao? = null\n\n    override fun onBind(intent: Intent?): IBinder? = null\n\n    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n        val trackId = intent?.getStringExtra(\"trackId\") ?: return START_NOT_STICKY\n        val bestAudioUrl = intent.getStringExtra(\"bestAudioUrl\") ?: \"\"\n        startForeground(1, createNotification(\"Downloading...\"))\n        serviceScope.launch {\n            val download = OfflineDownload(id = trackId, trackId = trackId, filePath = bestAudioUrl, isComplete = true, progress = 100)\n            downloadDao?.insertDownload(download)\n            stopSelf()\n        }\n        return START_STICKY\n    }\n\n    private fun createNotification(text: String) = NotificationCompat.Builder(this, getString(R.string.download_channel_name))\n        .setContentTitle(\"OpenWave Download\")\n        .setContentText(text)\n        .setSmallIcon(R.drawable.ic_download)\n        .build()\n\n    override fun onDestroy() {\n        super.onDestroy()\n        serviceJob.cancel()\n    }\n}\n")
         
         with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'service/MusicPlaybackService.kt'), 'w') as f:
-            f.write(f"package {base_pkg}.service\n\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nimport androidx.media3.common.MediaItem\nimport androidx.media3.exoplayer.ExoPlayer\nimport {base_pkg}.domain.model.Track\n\nclass MusicPlaybackService : Service() {{\n    private var player: ExoPlayer? = null\n\n    override fun onCreate() {{\n        super.onCreate()\n        player = ExoPlayer.Builder(this).build()\n    }}\n\n    override fun onBind(intent: Intent?): IBinder? = null\n\n    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {{\n        val url = intent?.getStringExtra(\"bestAudioUrl\") ?: return START_NOT_STICKY\n        val mediaItem = MediaItem.fromUri(url)\n        player?.setMediaItem(mediaItem)\n        player?.prepare()\n        player?.play()\n        return START_STICKY\n    }}\n\n    override fun onDestroy() {{\n        player?.release()\n        super.onDestroy()\n    }}\n}}\n")
+            f.write("package " + base_pkg + ".service\n\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nimport androidx.media3.common.MediaItem\nimport androidx.media3.exoplayer.ExoPlayer\nimport " + base_pkg + ".domain.model.Track\n\nclass MusicPlaybackService : Service() {\n    private var player: ExoPlayer? = null\n\n    override fun onCreate() {\n        super.onCreate()\n        player = ExoPlayer.Builder(this).build()\n    }\n\n    override fun onBind(intent: Intent?): IBinder? = null\n\n    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n        val url = intent?.getStringExtra(\"bestAudioUrl\") ?: return START_NOT_STICKY\n        val mediaItem = MediaItem.fromUri(url)\n        player?.setMediaItem(mediaItem)\n        player?.prepare()\n        player?.play()\n        return START_STICKY\n    }\n\n    override fun onDestroy() {\n        player?.release()\n        super.onDestroy()\n    }\n}\n")
         
         os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'presentation/viewmodel'), exist_ok=True)
         auth_vm_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'presentation/viewmodel/AuthViewModel.kt')
@@ -164,7 +164,7 @@ jobs:
                     code = '\n\n'.join(re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw, re.DOTALL | re.IGNORECASE)) if b3 in raw else raw
                     
                     pkg_m = re.search(r'^\s*package\s+([a-zA-Z0-9_.]+)', code, re.MULTILINE)
-                    pkg = pkg_m.group(0).strip() if pkg_m else f"package {base_pkg}"
+                    pkg = pkg_m.group(0).strip() if pkg_m else "package " + base_pkg
                     code = re.sub(r'^\s*package\s+[a-zA-Z0-9_.]+', '', code, flags=re.MULTILINE)
                     
                     imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code, re.MULTILINE))
@@ -192,12 +192,12 @@ jobs:
                         has_code_sym = any(c in ts for c in '{}()=+-*/<>&|!?:[]')
                         has_kw = any(kw in ts for kw in ['val ', 'var ', 'fun ', 'class ', 'interface ', 'object ', 'enum ', 'data ', 'sealed ', 'return ', 'if ', 'else ', 'when ', 'for ', 'while ', 'true', 'false', 'null'])
                         if not has_code_sym and not has_kw and " " in ts:
-                            clean_lines.append(f"// AI_CHATTER: {s}")
+                            clean_lines.append("// AI_CHATTER: " + s)
                         else:
                             clean_lines.append(s)
                     code = '\n'.join(clean_lines)
                     
-                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + code.strip()
+                    final_code = pkg + "\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + code.strip()
                     with open(p, 'w', encoding='utf-8') as out: out.write(final_code)
                 except Exception as e: pass
         EOF
@@ -233,11 +233,11 @@ jobs:
                             n = re.sub(r'[^a-zA-Z0-9_]', '', re.sub(r'::class.*|\.class|//.*|/\*.*?\*/', '', name).split('.')[-1])
                             if n and n not in existing:
                                 with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
-                                    out.write(f"package {pkg}\nimport androidx.room.*\n")
-                                    if t == 'e': out.write(f"@Entity\ndata class {n}(@PrimaryKey val id: String = \"\")\n")
-                                    else: out.write(f"class {n} {{ @TypeConverter fun f(v:String?):List<String> = emptyList() }}\n")
+                                    out.write("package " + pkg + "\nimport androidx.room.*\n")
+                                    if t == 'e': out.write("@Entity\ndata class " + n + "(@PrimaryKey val id: String = \"\")\n")
+                                    else: out.write("class " + n + " { @TypeConverter fun f(v:String?):List<String> = emptyList() }\n")
                                 existing.add(n)
-                                content = re.sub(rf'import\s+.*\.{n}\b', '', content)
+                                content = re.sub(r'import\s+.*\.{}\b'.format(n), '', content)
                 
                 mk(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
                 mk(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
@@ -246,5 +246,4 @@ jobs:
                 for dao in daos:
                     n = dao.strip()
                     if n and n not in existing:
-                        with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
-                            out.write(f"package {pkg}\nimpor
+                        with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as ou
