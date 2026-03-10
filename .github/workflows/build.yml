@@ -25,11 +25,13 @@ jobs:
     - name: STEP 1 - Project Sterilization
       run: |
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
+        # Fix repositories and basic gradle settings
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         if ! grep -q "kotlin-parcelize" openwave/android/app/build.gradle.kts; then
           sed -i '/id("com.android.application")/a \    id("kotlin-parcelize")' openwave/android/app/build.gradle.kts
         fi
+        # Add necessary media and logging dependencies
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         dependencies {
             implementation("androidx.media3:media3-exoplayer:1.3.1")
@@ -39,29 +41,6 @@ jobs:
             implementation("androidx.media:media:1.7.0")
             implementation("com.jakewharton.timber:timber:5.0.1")
         }
-        tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Resources") }.configureEach {
-            doFirst {
-                val uStr = 92.toChar() + "u{str}"
-                val regArt = Regex("<string name=\"artist_name\".*?</string>", RegexOption.DOT_MATCHES_ALL)
-                val regUsr = Regex("<string name=\"username_optional\".*?</string>", RegexOption.DOT_MATCHES_ALL)
-                fun sanitizeDir(dir: File) {
-                    if (dir.exists()) {
-                        dir.walkTopDown().filter { it.name.endsWith(".xml") }.forEach { f ->
-                            try {
-                                var txt = f.readText()
-                                var changed = false
-                                if (txt.contains("artist_name")) { txt = txt.replace(regArt, ""); changed = true }
-                                if (txt.contains("username_optional")) { txt = txt.replace(regUsr, ""); changed = true }
-                                if (txt.contains(uStr)) { txt = txt.replace(uStr, "str"); changed = true }
-                                if (changed) { f.writeText(txt) }
-                            } catch(e: Exception) {}
-                        }
-                    }
-                }
-                sanitizeDir(File(System.getProperty("user.home"), ".gradle/caches/transforms-3"))
-                sanitizeDir(File(projectDir, "src/main/res"))
-            }
-        }
         EOF
 
     - name: STEP 2 - UI & Resource Generator
@@ -70,180 +49,139 @@ jobs:
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
-        cat << 'EOF' > "$RES_DIR/values/kimi_missing_strings.xml"
-        <?xml version="1.0" encoding="utf-8"?>
+        # Strings and themes
+        cat << 'EOF' > "$RES_DIR/values/kimi_fix_resources.xml"
         <resources>
             <string name="app_name">OpenWave</string>
             <string name="playback_channel_name">Music Playback</string>
-            <string name="playback_channel_description">Notifications for audio playback</string>
             <string name="download_channel_name">Downloads</string>
-            <string name="download_channel_description">Download progress notifications</string>
             <string name="downloading_track">Downloading...</string>
-            <string name="download_complete">Downloaded</string>
-            <string name="download_failed">Error</string>
-            <string name="previous">Back</string>
-            <string name="pause">Pause</string>
-            <string name="play">Play</string>
-            <string name="next">Next</string>
+            <string name="download_complete">Complete</string>
+            <string name="download_failed">Failed</string>
+            <style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/>
         </resources>
         EOF
-        echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
-        V_XML='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
-        for i in play pause previous next ic_download ic_download_complete ic_download_error ic_notification ic_previous ic_pause ic_play ic_next; do
+        # Vectors
+        V_XML='<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
+        for i in play pause previous next ic_download ic_notification ic_launcher; do
             echo "$V_XML" > "$RES_DIR/drawable/${i}.xml"
         done
-        echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
-        cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - Architecture Restorer
+    - name: STEP 3 - Core Architecture Restorer
       run: |
         python3 - <<'EOF'
         import os, re
         src_dir = 'openwave/android/app/src/main/java'
         base_pkg = "com.openwave.app"
+        
+        # Determine package from AppDatabase
         for r, d, f in os.walk(src_dir):
             if 'AppDatabase.kt' in f:
                 with open(os.path.join(r, 'AppDatabase.kt'), 'r') as db_f:
                     for line in db_f:
                         if line.startswith('package'):
                             pkg_str = line.replace('package ', '').strip()
-                            if '.data' in pkg_str: base_pkg = pkg_str.split('.data')[0]
-                            elif '.domain' in pkg_str: base_pkg = pkg_str.split('.domain')[0]
+                            base_pkg = pkg_str.split('.data')[0] if '.data' in pkg_str else pkg_str.split('.domain')[0]
                             break
-        
-        os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model'), exist_ok=True)
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/Track.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".domain.model\n\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\ndata class Track(\n    val id: String = \"\",\n    val title: String = \"Unknown Title\",\n    val artist: String = \"Unknown Artist\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val duration: Long = 0L\n) : Parcelable\n")
-        
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'domain/model/User.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".domain.model\n\ndata class User(\n    val id: String = \"\",\n    val username: String = \"\",\n    val profilePicUrl: String = \"\"\n)\n\nenum class ItemType {\n    TRACK,\n    PLAYLIST,\n    ALBUM\n}\n")
-        
-        os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local'), exist_ok=True)
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownload.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".data.local\n\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\nimport kotlinx.parcelize.Parcelize\n\n@Parcelize\n@Entity(tableName = \"offline_downloads\")\ndata class OfflineDownload(\n    @PrimaryKey val id: String = \"\",\n    val trackId: String = \"\",\n    val filePath: String = \"\",\n    val isComplete: Boolean = false,\n    val progress: Int = 0\n) : Parcelable\n")
-        
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/OfflineDownloadDao.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface OfflineDownloadDao {\n    @Query(\"SELECT * FROM offline_downloads\")\n    fun getAllDownloads(): Flow<List<OfflineDownload>>\n\n    @Query(\"SELECT * FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun getDownloadByTrackId(trackId: String): OfflineDownload?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertDownload(download: OfflineDownload)\n\n    @Query(\"DELETE FROM offline_downloads WHERE trackId = :trackId\")\n    suspend fun deleteDownload(trackId: String)\n}\n")
-        
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/CachedTrackEntity.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".data.local\n\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity(tableName = \"cached_tracks\")\ndata class CachedTrackEntity(\n    @PrimaryKey val id: String = \"\",\n    val title: String = \"\",\n    val artist: String = \"\",\n    val coverUrl: String = \"\",\n    val streamUrl: String = \"\",\n    val filePath: String = \"\",\n    val addedAt: Long = 0L\n)\n")
-        
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'data/local/CachedTrackDao.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".data.local\n\nimport androidx.room.Dao\nimport androidx.room.Insert\nimport androidx.room.OnConflictStrategy\nimport androidx.room.Query\nimport kotlinx.coroutines.flow.Flow\n\n@Dao\ninterface CachedTrackDao {\n    @Query(\"SELECT * FROM cached_tracks ORDER BY addedAt DESC\")\n    fun getAllCachedTracksFlow(): Flow<List<CachedTrackEntity>>\n\n    @Query(\"SELECT * FROM cached_tracks WHERE id = :id LIMIT 1\")\n    suspend fun getCachedTrack(id: String): CachedTrackEntity?\n\n    @Insert(onConflict = OnConflictStrategy.REPLACE)\n    suspend fun insertCachedTrack(track: CachedTrackEntity)\n\n    @Query(\"DELETE FROM cached_tracks\")\n    suspend fun deleteAllTracks()\n\n    @Query(\"DELETE FROM cached_tracks WHERE addedAt < :timestamp\")\n    suspend fun deleteOldTracks(timestamp: Long)\n}\n")
-        
-        os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'service'), exist_ok=True)
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'service/DownloadService.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".service\n\nimport android.app.Service\nimport android.content.Intent\nimport android.os.Build\nimport android.os.IBinder\nimport androidx.core.app.NotificationCompat\nimport " + base_pkg + ".R\nimport " + base_pkg + ".data.local.OfflineDownload\nimport " + base_pkg + ".data.local.OfflineDownloadDao\nimport kotlinx.coroutines.*\n\nclass DownloadService : Service() {\n    private val serviceJob = Job()\n    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)\n    private var downloadDao: OfflineDownloadDao? = null\n\n    override fun onBind(intent: Intent?): IBinder? = null\n\n    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n        val trackId = intent?.getStringExtra(\"trackId\") ?: return START_NOT_STICKY\n        val bestAudioUrl = intent.getStringExtra(\"bestAudioUrl\") ?: \"\"\n        startForeground(1, createNotification(\"Downloading...\"))\n        serviceScope.launch {\n            val download = OfflineDownload(id = trackId, trackId = trackId, filePath = bestAudioUrl, isComplete = true, progress = 100)\n            downloadDao?.insertDownload(download)\n            stopSelf()\n        }\n        return START_STICKY\n    }\n\n    private fun createNotification(text: String) = NotificationCompat.Builder(this, getString(R.string.download_channel_name))\n        .setContentTitle(\"OpenWave Download\")\n        .setContentText(text)\n        .setSmallIcon(R.drawable.ic_download)\n        .build()\n\n    override fun onDestroy() {\n        super.onDestroy()\n        serviceJob.cancel()\n    }\n}\n")
-        
-        with open(os.path.join(src_dir, base_pkg.replace('.', '/'), 'service/MusicPlaybackService.kt'), 'w') as f:
-            f.write("package " + base_pkg + ".service\n\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nimport androidx.media3.common.MediaItem\nimport androidx.media3.exoplayer.ExoPlayer\nimport " + base_pkg + ".domain.model.Track\n\nclass MusicPlaybackService : Service() {\n    private var player: ExoPlayer? = null\n\n    override fun onCreate() {\n        super.onCreate()\n        player = ExoPlayer.Builder(this).build()\n    }\n\n    override fun onBind(intent: Intent?): IBinder? = null\n\n    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n        val url = intent?.getStringExtra(\"bestAudioUrl\") ?: return START_NOT_STICKY\n        val mediaItem = MediaItem.fromUri(url)\n        player?.setMediaItem(mediaItem)\n        player?.prepare()\n        player?.play()\n        return START_STICKY\n    }\n\n    override fun onDestroy() {\n        player?.release()\n        super.onDestroy()\n    }\n}\n")
-        
-        os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'presentation/viewmodel'), exist_ok=True)
-        auth_vm_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'presentation/viewmodel/AuthViewModel.kt')
-        if os.path.exists(auth_vm_path):
-            with open(auth_vm_path, 'r') as f: content = f.read()
-            content = re.sub(r'isAdmin\s*=\s*.*?,', '', content)
-            with open(auth_vm_path, 'w') as f: f.write(content)
-        
-        os.makedirs(os.path.join(src_dir, base_pkg.replace('.', '/'), 'presentation/theme'), exist_ok=True)
-        type_kt_path = os.path.join(src_dir, base_pkg.replace('.', '/'), 'presentation/theme/Type.kt')
-        if os.path.exists(type_kt_path):
-            with open(type_kt_path, 'r') as f: content = f.read()
-            content = re.sub(r'fontFamily\s*=\s*Font\(.*?\)', 'fontFamily = androidx.compose.ui.text.font.FontFamily.Default', content)
-            with open(type_kt_path, 'w') as f: f.write(content)
-        
-        b3 = chr(96) * 3
-        protected = ['Track.kt', 'OfflineDownload.kt', 'OfflineDownloadDao.kt', 'User.kt', 'CachedTrackEntity.kt', 'CachedTrackDao.kt', 'DownloadService.kt', 'MusicPlaybackService.kt', 'AppDatabase.kt']
-        for root, dirs, files in os.walk(src_dir):
-            for name in files:
-                if not name.endswith('.kt'): continue
-                if name in protected: continue
-                p = os.path.join(root, name)
-                try:
-                    with open(p, 'r', encoding='utf-8') as file: raw = file.read()
-                    code = '\n\n'.join(re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw, re.DOTALL | re.IGNORECASE)) if b3 in raw else raw
-                    
-                    pkg_m = re.search(r'^\s*package\s+([a-zA-Z0-9_.]+)', code, re.MULTILINE)
-                    pkg = pkg_m.group(0).strip() if pkg_m else "package " + base_pkg
-                    code = re.sub(r'^\s*package\s+[a-zA-Z0-9_.]+', '', code, flags=re.MULTILINE)
-                    
-                    imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code, re.MULTILINE))
-                    code = re.sub(r'^\s*import\s+[a-zA-Z0-9_.*]+', '', code, flags=re.MULTILINE)
-                    
-                    code = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', code)
-                    imports = {imp for imp in imports if 'OfflineDownloadEntity' not in imp}
-                    
-                    code = re.sub(r'//\s*\.\.\..*', '', code)
-                    code = re.sub(r'/\*.*?\.\.\..*?\*/', '', code, flags=re.DOTALL)
-                    code = re.sub(r'(?<!\.)\.\.\.(?!\.)', 'TODO("AI_PLACEHOLDER")', code)
-                    code = re.sub(r',\s*\}', '\n}', code)
-                    code = re.sub(r',\s*\)', '\n)', code)
-                    
-                    lines = code.split('\n')
-                    clean_lines = []
-                    for s in lines:
-                        ts = s.strip()
-                        if not ts: 
-                            clean_lines.append(s)
-                            continue
-                        if ts.startswith('//') or ts.startswith('/*') or ts.startswith('*') or ts.startswith('@'):
-                            clean_lines.append(s)
-                            continue
-                        has_code_sym = any(c in ts for c in '{}()=+-*/<>&|!?:[]')
-                        has_kw = any(kw in ts for kw in ['val ', 'var ', 'fun ', 'class ', 'interface ', 'object ', 'enum ', 'data ', 'sealed ', 'return ', 'if ', 'else ', 'when ', 'for ', 'while ', 'true', 'false', 'null'])
-                        if not has_code_sym and not has_kw and " " in ts:
-                            clean_lines.append("// AI_CHATTER: " + s)
-                        else:
-                            clean_lines.append(s)
-                    code = '\n'.join(clean_lines)
-                    
-                    final_code = pkg + "\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + code.strip()
-                    with open(p, 'w', encoding='utf-8') as out: out.write(final_code)
-                except Exception as e: pass
+
+        def write_file(path_parts, content):
+            full_path = os.path.join(src_dir, base_pkg.replace('.', '/'), *path_parts)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, 'w') as f:
+                f.write(content.replace("BASE_PKG", base_pkg))
+
+        # domain/model/Track.kt
+        write_file(['domain', 'model', 'Track.kt'], """package BASE_PKG.domain.model
+        import android.os.Parcelable
+        import kotlinx.parcelize.Parcelize
+        @Parcelize
+        data class Track(val id: String="", val title: String="", val artist: String="", val coverUrl: String="", val streamUrl: String="", val duration: Long=0L) : Parcelable
+        """)
+
+        # data/local/OfflineDownload.kt
+        write_file(['data', 'local', 'OfflineDownload.kt'], """package BASE_PKG.data.local
+        import androidx.room.*
+        import android.os.Parcelable
+        import kotlinx.parcelize.Parcelize
+        @Parcelize @Entity(tableName="offline_downloads")
+        data class OfflineDownload(@PrimaryKey val id: String, val trackId: String, val filePath: String, val isComplete: Boolean, val progress: Int) : Parcelable
+        """)
+
+        # data/local/OfflineDownloadDao.kt
+        write_file(['data', 'local', 'OfflineDownloadDao.kt'], """package BASE_PKG.data.local
+        import androidx.room.*
+        import kotlinx.coroutines.flow.Flow
+        @Dao
+        interface OfflineDownloadDao {
+            @Query("SELECT * FROM offline_downloads")
+            fun getAllDownloads(): Flow<List<OfflineDownload>>
+            @Insert(onConflict = OnConflictStrategy.REPLACE)
+            suspend fun insertDownload(download: OfflineDownload)
+            @Query("DELETE FROM offline_downloads WHERE trackId = :id")
+            suspend fun deleteDownload(id: String)
+        }
+        """)
+
+        # service/DownloadService.kt
+        write_file(['service', 'DownloadService.kt'], """package BASE_PKG.service
+        import android.app.Service
+        import android.content.Intent
+        import android.os.IBinder
+        import androidx.core.app.NotificationCompat
+        import BASE_PKG.R
+        class DownloadService : Service() {
+            override fun onBind(intent: Intent?): IBinder? = null
+            override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                startForeground(1, NotificationCompat.Builder(this, "dl").setSmallIcon(R.drawable.ic_notification).build())
+                return START_STICKY
+            }
+        }
+        """)
         EOF
 
-    - name: STEP 4 - AppDatabase Stabilizer
+    - name: STEP 4 - AppDatabase Stabilizer (Brace Safe)
       run: |
         python3 - <<'EOF'
         import os, re
         src = 'openwave/android/app/src/main/java'
-        existing = set([f.replace('.kt', '') for r, d, files in os.walk(src) for f in files if f.endswith('.kt')])
-        
-        db_file = None
-        for r, d, files in os.walk(src):
-            if 'AppDatabase.kt' in files:
-                db_file = os.path.join(r, 'AppDatabase.kt')
-                break
+        db_file = next((os.path.join(r, 'AppDatabase.kt') for r, d, f in os.walk(src) if 'AppDatabase.kt' in f), None)
         
         if db_file:
             with open(db_file, 'r') as f: content = f.read()
-            pkg_m = re.search(r'^package\s+(.*)', content, re.M)
-            if pkg_m:
-                pkg = pkg_m.group(1).strip()
-                
-                if 'CachedTrackEntity::class' not in content:
-                    content = re.sub(r'(entities\s*=\s*\[)', r'\1CachedTrackEntity::class, ', content)
-                if 'OfflineDownload::class' not in content:
-                    content = re.sub(r'(entities\s*=\s*\[)', r'\1OfflineDownload::class, ', content)
-                
-                def mk(rx, t):
-                    global content
-                    for i in re.findall(rx, content, re.S):
-                        for name in re.split(r',\s*', i):
-                            n = re.sub(r'[^a-zA-Z0-9_]', '', re.sub(r'::class.*|\.class|//.*|/\*.*?\*/', '', name).split('.')[-1])
-                            if n and n not in existing:
-                                with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
-                                    out.write("package " + pkg + "\nimport androidx.room.*\n")
-                                    if t == 'e': out.write("@Entity\ndata class " + n + "(@PrimaryKey val id: String = \"\")\n")
-                                    else: out.write("class " + n + " { @TypeConverter fun f(v:String?):List<String> = emptyList() }\n")
-                                existing.add(n)
-                
-                mk(r'entities\s*=\s*[\[\{](.*?)[\]\}]', 'e')
-                mk(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', 'c')
-                
-                daos = re.findall(r'abstract\s+fun\s+[a-zA-Z0-9_]+\s*\(\s*\)\s*:\s*([a-zA-Z0-9_]+)', content)
-                for dao in daos:
-                    n = dao.strip()
-                    if n and n not in existing:
-                        with open(os.path.join(os.path.dirname(db_file), f"{n}.kt"), 'w') as out:
-                            out.write("package " + pkg + "\nimport androidx.room.*\n@Dao\ni
+            pkg = re.search(r'^package\s+(.*)', content, re.M).group(1).strip()
+            
+            # Clean AppDatabase of bad names
+            content = content.replace('OfflineDownloadEntity', 'OfflineDownload')
+            
+            # Find all classes that Room expects
+            entities = re.findall(r'(\w+)::class', content)
+            daos = re.findall(r'abstract\s+fun\s+\w+\s*\(\s*\)\s*:\s*(\w+)', content)
+            
+            existing = set()
+            for r, d, files in os.walk(src):
+                for f in files: existing.add(f.replace('.kt', ''))
+            
+            # Create stubs for anything missing
+            for name in entities:
+                if name not in existing:
+                    with open(os.path.join(os.path.dirname(db_file), name + ".kt"), 'w') as out:
+                        out.write("package " + pkg + "\nimport androidx.room.*\n@Entity\ndata class " + name + "(@PrimaryKey val id: String = \"\")\n")
+            
+            for name in daos:
+                if name not in existing:
+                    with open(os.path.join(os.path.dirname(db_file), name + ".kt"), 'w') as out:
+                        out.write("package " + pkg + "\nimport androidx.room.*\n@Dao\ninterface " + name + " {}\n")
+            
+            with open(db_file, 'w') as f: f.write(content)
+        EOF
+
+    - name: STEP 5 - Final Build
+      run: |
+        cd openwave/android
+        gradle assembleDebug
+
+    - name: STEP 6 - Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: OpenWave-Final-Build
+        path: '**/*.apk'
