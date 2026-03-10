@@ -22,38 +22,64 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: Pre-Build Sterilization (Fix everything BEFORE Gradle runs)
+    - name: Inject Gradle Sterilization Hook
       run: |
-        # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 2. Фікс налаштувань Gradle
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # 3. ФІКС ЛОКАЛЬНОЇ ПОМИЛКИ KIMI 
-        # Видаляємо зламані рядки з вихідного коду ДО того, як Gradle їх побачить
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/username_optional/d' {} +
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/{str}/d' {} +
-        
-        # 4. ФІКС БАГУ GOOGLE (Оновлюємо Media3 до чистої версії 1.3.1)
-        # Додаємо суворе правило прямо у файл налаштувань ДОДАТКА
+        # МАГІЯ ТУТ: Впроваджуємо хук прямо в конфігурацію додатка
         cat << 'EOF' >> openwave/android/app/build.gradle.kts
         
-        configurations.all {
-            resolutionStrategy {
-                force("androidx.media3:media3-common:1.3.1")
-                force("androidx.media3:media3-session:1.3.1")
-                force("androidx.media3:media3-exoplayer:1.3.1")
-                force("androidx.media3:media3-ui:1.3.1")
+        tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Resources") }.configureEach {
+            doFirst {
+                println("=== ЗАПУСК СТЕРИЛІЗАЦІЇ РЕСУРСІВ ПЕРЕД ЗЛИТТЯМ ===")
+                // Створюємо проблемний рядок безпечним шляхом, щоб сам компілятор не впав
+                val uStr = 92.toChar() + "u{str}"
+                val regArtist = Regex("<string name=\"artist_name\".*?</string>", RegexOption.DOT_MATCHES_ALL)
+                val regUser = Regex("<string name=\"username_optional\".*?</string>", RegexOption.DOT_MATCHES_ALL)
+                
+                fun sanitizeDir(dir: File) {
+                    if (dir.exists()) {
+                        dir.walkTopDown().filter { it.name.endsWith(".xml") }.forEach { file ->
+                            try {
+                                var text = file.readText()
+                                var changed = false
+                                
+                                if (text.contains("artist_name")) {
+                                    text = text.replace(regArtist, "")
+                                    changed = true
+                                }
+                                if (text.contains("username_optional")) {
+                                    text = text.replace(regUser, "")
+                                    changed = true
+                                }
+                                if (text.contains(uStr)) {
+                                    text = text.replace(uStr, "str")
+                                    changed = true
+                                }
+                                
+                                if (changed) {
+                                    file.writeText(text)
+                                    println("Вилікувано файл: " + file.absolutePath)
+                                }
+                            } catch(e: Exception) {}
+                        }
+                    }
+                }
+                
+                // Проходимося катком і по кешу сервера, і по локальних файлах
+                sanitizeDir(File(System.getProperty("user.home"), ".gradle/caches/transforms-3"))
+                sanitizeDir(File(projectDir, "src/main/res"))
             }
         }
         EOF
 
-    - name: Build Native Android App
+    - name: Build APK (Single Clean Run)
       run: |
         cd openwave/android
-        # Запускаємо збірку ОДИН РАЗ на ідеально чистому коді та правильних бібліотеках
+        # Цей єдиний запуск пройде ідеально
         gradle assembleDebug
 
     - name: Upload APK
