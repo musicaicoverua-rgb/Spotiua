@@ -76,14 +76,14 @@ jobs:
         EOF
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: Safe Markdown Code Extractor
+    - name: The Ultimate AI Code Sterilizer
       run: |
-        echo "Safely extracting pure code from Markdown blocks..."
+        echo "Smart extraction and auto-packaging of Kotlin files..."
         python3 - <<'EOF'
         import os, re
 
-        # System code for backticks to prevent YAML parser crash
         b3 = chr(96) * 3
+        valid_starts = ('package ', 'import ', '@', 'class ', 'interface ', 'object ', 'enum ', 'sealed ', 'data ', 'abstract ', 'fun ', 'val ', 'const ', 'var ', 'suspend ', 'typealias ', 'inline ')
 
         for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
             for f in files:
@@ -95,33 +95,58 @@ jobs:
                         
                         original = content
                         
-                        # Split file by triple backticks
+                        # 1. Extract block if backticks are used
                         parts = content.split(b3)
                         if len(parts) >= 3:
-                            # Odd indices contain the actual code
                             blocks = [parts[i] for i in range(1, len(parts), 2)]
                             blocks.sort(key=len, reverse=True)
-                            
-                            # Find the block that contains 'package'
                             for b in blocks:
-                                if 'package ' in b:
+                                if 'import ' in b or 'package ' in b or 'class ' in b:
                                     content = b
                                     break
                             else:
-                                content = blocks[0] # Fallback to longest block
-                                
-                            # Clean up the hidden language identifier (like 'kotlin') at the top of the block
+                                content = blocks[0]
                             content = re.sub(r'^\s*(?:kotlin|java|kt)\b', '', content, flags=re.IGNORECASE)
                             
-                        # Remove any leftover conversational text before the package declaration
-                        pkg_idx = content.find('package ')
-                        if pkg_idx > 0:
-                            content = content[pkg_idx:]
-                            
+                        # 2. Trim conversational garbage from the top line by line
+                        lines = content.split('\n')
+                        first_valid_idx = -1
+                        for i, line in enumerate(lines):
+                            stripped = line.strip()
+                            if stripped:
+                                is_valid = False
+                                for word in valid_starts:
+                                    if stripped.startswith(word):
+                                        is_valid = True
+                                        break
+                                if is_valid:
+                                    first_valid_idx = i
+                                    break
+                                    
+                        if first_valid_idx != -1:
+                            lines = lines[first_valid_idx:]
+                        
+                        content = '\n'.join(lines)
+                        
+                        # 3. Auto-inject missing package declaration if Kimi forgot it!
+                        if 'package ' not in content:
+                            pkg_path = ""
+                            if 'java/' in path:
+                                pkg_path = path.split('java/')[1]
+                            elif 'kotlin/' in path:
+                                pkg_path = path.split('kotlin/')[1]
+                                
+                            if pkg_path:
+                                pkg_dir = os.path.dirname(pkg_path)
+                                pkg_name = pkg_dir.replace('/', '.').replace('\\', '.')
+                                if pkg_name:
+                                    content = f"package {pkg_name}\n\n" + content
+                                    print(f"Injected missing package '{pkg_name}' into {f}")
+                                    
                         if content != original:
                             with open(path, 'w', encoding='utf-8') as file:
                                 file.write(content)
-                            print(f"Successfully extracted code for: {f}")
+                            print(f"Successfully cleaned: {f}")
                     except Exception as e:
                         pass
         EOF
