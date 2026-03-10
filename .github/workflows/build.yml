@@ -168,74 +168,102 @@ jobs:
                     pass
         EOF
 
-    - name: The Room Database Healer
+    - name: The Ultimate Room SuperHealer
       run: |
-        echo "Healing missing Room DB Entities and Converters..."
+        echo "Scanning project for missing Database entities and DAOs..."
         python3 - <<'EOF'
-        import os
+        import os, re
 
-        # 1. Find AppDatabase.kt
+        src_dir = 'openwave/android/app/src/main/java'
+
+        # 1. Gather all known classes to avoid creating duplicates
+        all_classes = set()
+        for r, d, files in os.walk(src_dir):
+            for f in files:
+                if f.endswith('.kt') or f.endswith('.java'):
+                    try:
+                        with open(os.path.join(r, f), 'r', encoding='utf-8') as kf:
+                            content = kf.read()
+                            for match in re.finditer(r'(?:class|interface|object)\s+([a-zA-Z0-9_]+)', content):
+                                all_classes.add(match.group(1))
+                    except: pass
+
+        # 2. Find AppDatabase.kt
         db_path = None
-        for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
+        for r, d, files in os.walk(src_dir):
             if 'AppDatabase.kt' in files:
-                db_path = os.path.join(root, 'AppDatabase.kt')
+                db_path = os.path.join(r, 'AppDatabase.kt')
                 break
 
         if db_path:
-            db_dir = os.path.dirname(db_path)
             with open(db_path, 'r', encoding='utf-8') as f:
-                db_content = f.read()
+                content = f.read()
 
-            # 2. Search for the missing files
-            history_pkg = None
-            converters_pkg = None
-
-            for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
-                for f in files:
-                    if f == 'ListeningHistoryEntity.kt':
-                        with open(os.path.join(root, f), 'r', encoding='utf-8') as temp_f:
-                            for line in temp_f:
-                                if line.startswith('package '):
-                                    history_pkg = line.replace('package ', '').strip() + '.ListeningHistoryEntity'
-                                    break
-                    if f == 'Converters.kt':
-                        with open(os.path.join(root, f), 'r', encoding='utf-8') as temp_f:
-                            for line in temp_f:
-                                if line.startswith('package '):
-                                    converters_pkg = line.replace('package ', '').strip() + '.Converters'
-                                    break
-
-            # 3. Inject imports if files exist elsewhere
-            imports_to_add = []
-            if history_pkg and history_pkg not in db_content: imports_to_add.append(f"import {history_pkg}")
-            if converters_pkg and converters_pkg not in db_content: imports_to_add.append(f"import {converters_pkg}")
-
-            if imports_to_add:
-                lines = db_content.split('\n')
-                for i, line in enumerate(lines):
-                    if line.startswith('package '):
-                        lines.insert(i + 1, '\n' + '\n'.join(imports_to_add))
-                        break
-                with open(db_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(lines))
-                print("Injected missing imports into AppDatabase.kt")
-
-            # 4. Generate the files if Kimi completely forgot them
             db_pkg = "com.openwave.app.data.local"
-            for line in db_content.split('\n'):
-                if line.startswith('package '):
-                    db_pkg = line.replace('package ', '').strip()
-                    break
+            pkg_match = re.search(r'^package\s+([a-zA-Z0-9_.]+)', content, re.MULTILINE)
+            if pkg_match:
+                db_pkg = pkg_match.group(1)
 
-            if not history_pkg:
-                code = f"package {db_pkg}\n\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity(tableName = \"listening_history\")\ndata class ListeningHistoryEntity(\n    @PrimaryKey val id: String = \"\",\n    val trackId: String = \"\",\n    val timestamp: Long = 0L\n)\n"
-                with open(os.path.join(db_dir, 'ListeningHistoryEntity.kt'), 'w', encoding='utf-8') as f: f.write(code)
-                print("Created missing ListeningHistoryEntity.kt")
+            imports = {}
+            for imp in re.findall(r'^import\s+([a-zA-Z0-9_.]+)', content, re.MULTILINE):
+                class_name = imp.split('.')[-1]
+                imports[class_name] = imp
 
-            if not converters_pkg:
-                code = f"package {db_pkg}\n\nimport androidx.room.TypeConverter\n\nclass Converters {{\n    @TypeConverter\n    fun fromString(value: String?): List<String> {{\n        return value?.split(\",\") ?: emptyList()\n    }}\n    @TypeConverter\n    fun toString(list: List<String>?): String {{\n        return list?.joinToString(\",\") ?: \"\"\n    }}\n}}\n"
-                with open(os.path.join(db_dir, 'Converters.kt'), 'w', encoding='utf-8') as f: f.write(code)
-                print("Created missing Converters.kt")
+            missing_entities = []
+            missing_converters = []
+            missing_daos = []
+
+            # Extract Entities from @Database
+            entities_match = re.search(r'@Database\s*\(\s*entities\s*=\s*[\[\{](.*?)[\]\}]', content, re.DOTALL)
+            if entities_match:
+                for e in entities_match.group(1).split(','):
+                    c_clean = re.sub(r'::class(\.java)?|\.class', '', e).strip()
+                    if '.' in c_clean: c_clean = c_clean.split('.')[-1]
+                    if c_clean and c_clean not in all_classes:
+                        missing_entities.append(c_clean)
+
+            # Extract Converters from @TypeConverters
+            converters_match = re.search(r'@TypeConverters\s*\(\s*(?:value\s*=\s*)?[\[\{]?(.*?)[\]\}]?\s*\)', content, re.DOTALL)
+            if converters_match:
+                for c in converters_match.group(1).split(','):
+                    c_clean = re.sub(r'::class(\.java)?|\.class', '', c).strip()
+                    if '.' in c_clean: c_clean = c_clean.split('.')[-1]
+                    if c_clean and c_clean not in all_classes:
+                        missing_converters.append(c_clean)
+
+            # Extract DAOs
+            for dao_match in re.finditer(r'abstract\s+(?:fun|val)\s+[a-zA-Z0-9_]+\s*(?:\(\s*\))?\s*:\s*([a-zA-Z0-9_]+)', content):
+                dao_name = dao_match.group(1)
+                if dao_name not in all_classes:
+                    missing_daos.append(dao_name)
+
+            # Function to safely create missing files
+            def create_missing(class_name, c_type):
+                expected_pkg = db_pkg
+                if class_name in imports:
+                    full_imp = imports[class_name]
+                    expected_pkg = '.'.join(full_imp.split('.')[:-1])
+
+                rel_path = expected_pkg.replace('.', '/')
+                full_dir = os.path.join(src_dir, rel_path)
+                os.makedirs(full_dir, exist_ok=True)
+                file_path = os.path.join(full_dir, f"{class_name}.kt")
+
+                code = f"package {expected_pkg}\n\n"
+                if c_type == 'entity':
+                    code += f"import androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity\ndata class {class_name}(\n    @PrimaryKey val id: String = \"default_id\"\n)\n"
+                elif c_type == 'converter':
+                    code += f"import androidx.room.TypeConverter\n\nclass {class_name} {{\n    @TypeConverter\n    fun fromStr(value: String?): List<String> = value?.split(\",\") ?: emptyList()\n    @TypeConverter\n    fun toStr(list: List<String>?): String = list?.joinToString(\",\") ?: \"\"\n}}\n"
+                elif c_type == 'dao':
+                    code += f"import androidx.room.Dao\n\n@Dao\ninterface {class_name} {{\n}}\n"
+
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                print(f"SuperHealer: Generated missing {c_type}: {class_name} in {expected_pkg}")
+
+            for e in missing_entities: create_missing(e, 'entity')
+            for c in missing_converters: create_missing(c, 'converter')
+            for d in missing_daos: create_missing(d, 'dao')
         EOF
 
     - name: Build APK
