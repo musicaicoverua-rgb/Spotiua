@@ -47,13 +47,26 @@ jobs:
         # Генеруємо архітектурний код (моделі, залежності)
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 3 - Build Production APK
+    - name: STEP 3 - Fix Android Configuration
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
+        
+        # 1. Примусово вмикаємо AndroidX
+        mkdir -p android
+        echo "android.useAndroidX=true" >> android/gradle.properties
+        echo "android.enableJetifier=true" >> android/gradle.properties
+        
+        # 2. Виправляємо невідому змінну kotlin_version
+        sed -i 's/$kotlin_version/1.9.0/g' android/app/build.gradle || true
+        sed -i 's/${kotlin_version}/1.9.0/g' android/app/build.gradle || true
+
+    - name: STEP 4 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
         # Збираємо додаток
         flutter build apk --debug
 
-    - name: STEP 4 - Upload APK
+    - name: STEP 5 - Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: OpenWave-Full-App
