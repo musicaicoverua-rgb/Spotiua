@@ -42,7 +42,7 @@ jobs:
         }
         EOF
 
-    - name: STEP 2 - Deep Resource Surgery
+    - name: STEP 2 - Resource Surgery
       run: |
         RES_DIR="openwave/android/app/src/main/res"
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
@@ -58,7 +58,7 @@ jobs:
         find . -name "*.xml" -type f -exec sed -i '/username_optional/d' {} +
         echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string><string name="playback_channel_name">Music</string><string name="download_channel_name">Downloads</string><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_final.xml"
 
-    - name: STEP 3 - Architecture Restorer (Hard Reset)
+    - name: STEP 3 - Architecture Restorer (Full Reset)
       run: |
         python3 - <<'EOF'
         import os, re
@@ -76,14 +76,22 @@ jobs:
             full = os.path.join(src_dir, base_pkg.replace('.', '/'), *p_list)
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, 'w') as f: f.write(body.replace("BASE_PKG", base_pkg))
+        
+        # MODELS & DB
         save(['domain', 'model', 'Track.kt'], "package BASE_PKG.domain.model\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n@Parcelize\ndata class Track(val id: String=\"\", val title: String=\"\", val artist: String=\"\", val coverUrl: String=\"\", val streamUrl: String=\"\", val duration: Long=0L) : Parcelable")
         save(['domain', 'model', 'User.kt'], "package BASE_PKG.domain.model\ndata class User(val id: String=\"\", val username: String=\"\")\nenum class ItemType { TRACK, PLAYLIST, ALBUM }")
         save(['data', 'local', 'OfflineDownload.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\nimport android.os.Parcelable\nimport kotlinx.parcelize.Parcelize\n@Parcelize @Entity(tableName=\"offline_downloads\")\ndata class OfflineDownload(@PrimaryKey val id: String, val trackId: String, val filePath: String, val isComplete: Boolean, val progress: Int) : Parcelable")
         save(['data', 'local', 'CachedTrackEntity.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\n@Entity(tableName=\"cached_tracks\")\ndata class CachedTrackEntity(@PrimaryKey val id: String, val title: String=\"\", val artist: String=\"\", val addedAt: Long=0L)")
         save(['data', 'local', 'OfflineDownloadDao.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\nimport kotlinx.coroutines.flow.Flow\n@Dao\ninterface OfflineDownloadDao {\n @Query(\"SELECT * FROM offline_downloads\")\n fun getAllDownloads(): Flow<List<OfflineDownload>>\n @Insert(onConflict = OnConflictStrategy.REPLACE)\n suspend fun insertDownload(d: OfflineDownload)\n @Query(\"DELETE FROM offline_downloads WHERE trackId = :id\")\n suspend fun deleteDownload(id: String)\n}")
         save(['data', 'local', 'CachedTrackDao.kt'], "package BASE_PKG.data.local\nimport androidx.room.*\nimport kotlinx.coroutines.flow.Flow\n@Dao\ninterface CachedTrackDao {\n @Query(\"SELECT * FROM cached_tracks\")\n fun getAllCachedTracksFlow(): Flow<List<CachedTrackEntity>>\n @Insert(onConflict = OnConflictStrategy.REPLACE)\n suspend fun insertCachedTrack(t: CachedTrackEntity)\n @Query(\"DELETE FROM cached_tracks\")\n suspend fun deleteAllTracks()\n}")
-        save(['service', 'DownloadService.kt'], "package BASE_PKG.service\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nclass DownloadService : Service() {\n override fun onBind(i: Intent?): IBinder? = null\n}")
-        save(['service', 'MusicPlaybackService.kt'], "package BASE_PKG.service\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nclass MusicPlaybackService : Service() {\n override fun onBind(i: Intent?): IBinder? = null\n}")
+        
+        # SERVICES
+        save(['service', 'DownloadService.kt'], "package BASE_PKG.service\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nclass DownloadService : Service() { override fun onBind(i: Intent?): IBinder? = null }")
+        save(['service', 'MusicPlaybackService.kt'], "package BASE_PKG.service\nimport android.app.Service\nimport android.content.Intent\nimport android.os.IBinder\nclass MusicPlaybackService : Service() { override fun onBind(i: Intent?): IBinder? = null }")
+
+        # VIEWMODELS (Fixes 1000028502.jpg)
+        save(['presentation', 'viewmodel', 'PlayerViewModel.kt'], "package BASE_PKG.presentation.viewmodel\nimport androidx.lifecycle.ViewModel\nimport kotlinx.coroutines.flow.*\nimport BASE_PKG.domain.model.Track\nclass PlayerViewModel : ViewModel() {\n val currentTrack = MutableStateFlow<Track?>(null)\n fun togglePlayPause() {}\n fun play() {}\n fun pause() {}\n fun playNext() {}\n fun playPrevious() {}\n fun seekTo(p: Long) {}\n fun skipForward() {}\n fun skipBackward() {}\n fun setShuffleEnabled(e: Boolean) {}\n fun setRepeatMode(m: Int) {}\n fun addToQueue(t: Track) {}\n fun getQueue(): List<Track> = emptyList()\n fun clearQueue() {}\n fun getCurrentIndex(): Int = 0\n}")
+        save(['presentation', 'viewmodel', 'AuthViewModel.kt'], "package BASE_PKG.presentation.viewmodel\nimport androidx.lifecycle.ViewModel\nclass AuthViewModel : ViewModel() { val isAdmin = false }")
         EOF
 
     - name: STEP 4 - AppDatabase & Converter Stabilizer
@@ -99,9 +107,7 @@ jobs:
             entities = re.findall(r'(\w+)::class', content)
             daos = re.findall(r'abstract\s+fun\s+\w+\s*\(\s*\)\s*:\s*(\w+)', content)
             converters = re.findall(r'@TypeConverters\s*\(\s*(\w+)::class\s*\)', content)
-            existing = set()
-            for r, d, files in os.walk(src):
-                for f in files: existing.add(f.replace('.kt', ''))
+            existing = set([f.replace('.kt', '') for r, d, files in os.walk(src) for f in files if f.endswith('.kt')])
             for name in entities:
                 if name not in existing:
                     with open(os.path.join(os.path.dirname(db_file), name + ".kt"), 'w') as out:
