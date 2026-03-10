@@ -76,79 +76,100 @@ jobs:
         EOF
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: The Ultimate AI Code Sterilizer
+    - name: The Kotlin Auto-Reorganizer
       run: |
-        echo "Smart extraction and auto-packaging of Kotlin files..."
+        echo "Deep structural reorganization of Kotlin files..."
         python3 - <<'EOF'
         import os, re
 
-        b3 = chr(96) * 3
-        valid_starts = ('package ', 'import ', '@', 'class ', 'interface ', 'object ', 'enum ', 'sealed ', 'data ', 'abstract ', 'fun ', 'val ', 'const ', 'var ', 'suspend ', 'typealias ', 'inline ')
+        valid_starts = (
+            '@', '//', '/*',
+            'class ', 'interface ', 'object ', 'fun ', 'val ', 'var ', 'typealias ',
+            'public ', 'private ', 'protected ', 'internal ', 'expect ', 'actual ',
+            'final ', 'open ', 'abstract ', 'sealed ', 'const ', 'external ',
+            'override ', 'lateinit ', 'tailrec ', 'vararg ', 'suspend ', 'inner ',
+            'enum ', 'annotation ', 'companion ', 'inline ', 'noinline ',
+            'crossinline ', 'reified ', 'infix ', 'operator ', 'data '
+        )
 
         for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
             for f in files:
-                if f.endswith('.kt') or f.endswith('.java'):
-                    path = os.path.join(root, f)
-                    try:
-                        with open(path, 'r', encoding='utf-8') as file:
-                            content = file.read()
-                        
-                        original = content
-                        
-                        # 1. Extract block if backticks are used
-                        parts = content.split(b3)
-                        if len(parts) >= 3:
-                            blocks = [parts[i] for i in range(1, len(parts), 2)]
-                            blocks.sort(key=len, reverse=True)
-                            for b in blocks:
-                                if 'import ' in b or 'package ' in b or 'class ' in b:
-                                    content = b
-                                    break
-                            else:
-                                content = blocks[0]
-                            content = re.sub(r'^\s*(?:kotlin|java|kt)\b', '', content, flags=re.IGNORECASE)
-                            
-                        # 2. Trim conversational garbage from the top line by line
-                        lines = content.split('\n')
-                        first_valid_idx = -1
-                        for i, line in enumerate(lines):
-                            stripped = line.strip()
-                            if stripped:
-                                is_valid = False
-                                for word in valid_starts:
-                                    if stripped.startswith(word):
-                                        is_valid = True
-                                        break
-                                if is_valid:
-                                    first_valid_idx = i
-                                    break
-                                    
-                        if first_valid_idx != -1:
-                            lines = lines[first_valid_idx:]
-                        
-                        content = '\n'.join(lines)
-                        
-                        # 3. Auto-inject missing package declaration if Kimi forgot it!
-                        if 'package ' not in content:
-                            pkg_path = ""
-                            if 'java/' in path:
-                                pkg_path = path.split('java/')[1]
-                            elif 'kotlin/' in path:
-                                pkg_path = path.split('kotlin/')[1]
-                                
-                            if pkg_path:
-                                pkg_dir = os.path.dirname(pkg_path)
-                                pkg_name = pkg_dir.replace('/', '.').replace('\\', '.')
-                                if pkg_name:
-                                    content = f"package {pkg_name}\n\n" + content
-                                    print(f"Injected missing package '{pkg_name}' into {f}")
-                                    
-                        if content != original:
-                            with open(path, 'w', encoding='utf-8') as file:
-                                file.write(content)
-                            print(f"Successfully cleaned: {f}")
-                    except Exception as e:
-                        pass
+                if not (f.endswith('.kt') or f.endswith('.java')): continue
+                path = os.path.join(root, f)
+
+                try:
+                    with open(path, 'r', encoding='utf-8') as file:
+                        content = file.read()
+
+                    # Extract pure code from markdown
+                    blocks = re.findall(r'
+                    
+                    if blocks:
+                        content = max(blocks, key=len)
+                    content = re.sub(r'```[a-zA-Z]*', '', content)
+
+                    lines = content.split('\n')
+                    package_line = ""
+                    imports = set()
+                    body_lines = []
+
+                    # Gather components
+                    for line in lines:
+                        stripped = line.strip()
+                        if stripped.startswith('package '):
+                            if not package_line:
+                                package_line = stripped
+                        elif stripped.startswith('import '):
+                            imports.add(stripped)
+                        else:
+                            body_lines.append(line)
+
+                    # Strip AI conversational garbage from the top
+                    start_idx = 0
+                    for i, line in enumerate(body_lines):
+                        stripped = line.strip()
+                        if not stripped: continue
+                        is_valid = False
+                        for vs in valid_starts:
+                            if stripped.startswith(vs):
+                                is_valid = True
+                                break
+                        if is_valid:
+                            start_idx = i
+                            break
+
+                    body_lines = body_lines[start_idx:]
+
+                    # Infer package if Kimi forgot it
+                    if not package_line:
+                        pkg_path = ""
+                        if 'java/' in path: pkg_path = path.split('java/')[1]
+                        elif 'kotlin/' in path: pkg_path = path.split('kotlin/')[1]
+                        if pkg_path:
+                            pkg_dir = os.path.dirname(pkg_path)
+                            pkg_name = pkg_dir.replace('/', '.').replace('\\', '.')
+                            if pkg_name:
+                                package_line = f"package {pkg_name}"
+
+                    # Strictly rebuild the file
+                    final_content = []
+                    if package_line:
+                        final_content.append(package_line)
+                        final_content.append("")
+
+                    for imp in sorted(list(imports)):
+                        final_content.append(imp)
+
+                    if imports:
+                        final_content.append("")
+
+                    final_content.extend(body_lines)
+
+                    with open(path, 'w', encoding='utf-8') as f_out:
+                        f_out.write('\n'.join(final_content))
+                    print(f"Reorganized and cleaned: {f}")
+                except Exception as e:
+                    print(f"Error processing {f}: {e}")
         EOF
 
     - name: Build APK
