@@ -1,4 +1,4 @@
-name: Build APK
+name: Flutter Build APK
 
 on:
   workflow_dispatch:
@@ -17,238 +17,156 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
+    - name: Install Flutter
+      uses: subosito/flutter-action@v2
       with:
-        gradle-version: '8.4'
+        flutter-version: '3.16.0'
+        channel: 'stable'
 
     - name: STEP 1 - Unpack & Sterilize
       run: |
-        unzip -q -o "Kimi_Agent_OpenWave Native Music App.zip"
-        # Знаходимо шлях до папки android
-        AND_DIR=$(find . -name "build.gradle.kts" | grep "android/app" | sed 's/\/app\/build.gradle.kts//')
-        echo "ANDROID_PROJECT_DIR=$AND_DIR" >> $GITHUB_ENV
+        # Розпаковуємо ваш архів
+        unzip -q -o "Kimi_Agent_OpenWave Complete Code.zip"
         
-        # Очищаємо код та ресурси від старого сміття
-        rm -rf $AND_DIR/app/src/main/java/*
-        rm -rf $AND_DIR/app/src/main/res/values/*
-        rm -rf $AND_DIR/app/src/main/res/drawable/*
-        mkdir -p $AND_DIR/app/src/main/java/com/openwave/app
-        mkdir -p $AND_DIR/app/src/main/res/values
-        mkdir -p $AND_DIR/app/src/main/res/drawable
-        mkdir -p $AND_DIR/app/src/main/res/xml
+        # Створюємо чистий проект Flutter для гарантії стабільності
+        flutter create --org com.openwave app
+        cd app
+        
+        # Очищуємо lib та створюємо структуру папок
+        rm -rf lib/*
+        mkdir -p lib/core/services lib/core/models lib/core/theme lib/core/router lib/core/di
+        mkdir -p lib/features/admin/presentation/screens
+        mkdir -p lib/features/player/presentation/screens
+        mkdir -p lib/features/auth/presentation/screens
+        mkdir -p assets/translations
 
-    - name: STEP 2 - Fix Build Configuration
+    - name: STEP 2 - Inject Credentials and Admin Logic
       run: |
-        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
-        # Налаштовуємо правильний namespace та вмикаємо Compose
-        sed -i 's/namespace = .*/namespace = "com.openwave.app"/' $AND_DIR/app/build.gradle.kts
-        sed -i 's/applicationId = .*/applicationId = "com.openwave.app"/' $AND_DIR/app/build.gradle.kts
+        cd app
         
-        # Додаємо необхідні залежності
-        cat << 'EOF' >> $AND_DIR/app/build.gradle.kts
-        dependencies {
-            implementation("androidx.media3:media3-exoplayer:1.3.1")
-            implementation("androidx.media3:media3-session:1.3.1")
-            implementation("androidx.media3:media3-common:1.3.1")
-            implementation("androidx.media3:media3-ui:1.3.1")
-            implementation(platform("io.github.jan-tennert.supabase:bom:2.1.3"))
-            implementation("io.github.jan-tennert.supabase:storage-kt")
-            implementation("io.github.jan-tennert.supabase:gotrue-kt")
-            implementation("io.ktor:ktor-client-android:2.3.8")
+        # Оновлюємо pubspec.yaml (використовуємо ваш перевірений список)
+        cat << 'EOF' > pubspec.yaml
+        name: openwave
+        description: OpenWave - Music Streaming with Gamification
+        version: 1.0.0+1
+        environment:
+          sdk: '>=3.0.0 <4.0.0'
+        dependencies:
+          flutter: { sdk: flutter }
+          cupertino_icons: ^1.0.6
+          google_fonts: ^6.1.0
+          supabase_flutter: ^2.0.2
+          just_audio: ^0.9.36
+          just_audio_background: ^0.0.1-beta.10
+          easy_localization: ^3.0.3
+          file_picker: ^6.1.1
+          flutter_bloc: ^8.1.3
+          get_it: ^7.6.4
+          injectable: ^2.3.2
+          go_router: ^12.1.1
+          flutter_fortune_wheel: ^1.3.1
+        dev_dependencies:
+          flutter_test: { sdk: flutter }
+          build_runner: ^2.4.7
+          injectable_generator: ^2.4.1
+        flutter:
+          uses-material-design: true
+          assets: [ assets/translations/ ]
+        EOF
+
+        # Прописуємо ваші ключі та пошту адміна в main.dart
+        cat << 'EOF' > lib/main.dart
+        import 'package:flutter/material.dart';
+        import 'package:supabase_flutter/supabase_flutter.dart';
+        import 'package:easy_localization/easy_localization.dart';
+
+        void main() async {
+          WidgetsFlutterBinding.ensureInitialized();
+          await EasyLocalization.ensureInitialized();
+          
+          await Supabase.initialize(
+            url: 'https://nmowlkjoragnffkxbrzq.supabase.co',
+            anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tb3dsa2pvcmFnbmZma3hicnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTYyNjcsImV4cCI6MjA4ODY3MjI2N30.yNHTyZfXOjy-lJNxCOm8F9_YVGWF6kGWmueFYBHTfI0',
+          );
+          
+          runApp(
+            EasyLocalization(
+              supportedLocales: const [Locale('uk'), Locale('en')],
+              path: 'assets/translations',
+              fallbackLocale: const Locale('uk'),
+              child: const OpenWaveApp(),
+            ),
+          );
+        }
+
+        class OpenWaveApp extends StatelessWidget {
+          const OpenWaveApp({super.key});
+
+          @override
+          Widget build(BuildContext context) {
+            final user = Supabase.instance.client.auth.currentUser;
+            final isAdmin = user?.email == 'andriimykolyshyn@gmail.com';
+
+            return MaterialApp(
+              debugShowCheckedModeBanner: false,
+              title: 'OpenWave',
+              home: Scaffold(
+                appBar: AppBar(
+                  title: Text(isAdmin ? "OpenWave ADMIN" : "OpenWave"),
+                  backgroundColor: isAdmin ? Colors.redAccent : Colors.blueAccent,
+                ),
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text("Вітаємо в OpenWave!", style: TextStyle(fontSize: 24)),
+                      if (isAdmin) Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Text("Ви авторизовані як Головний Адміністратор", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                      ),
+                      Text("Користувач: ${user?.email ?? 'Гість'}"),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
         }
         EOF
 
-    - name: STEP 3 - Generate Manifest & Resources
+    - name: STEP 3 - Setup Translations
       run: |
-        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
-        RES=$AND_DIR/app/src/main/res
-        
-        # Створюємо чистий Маніфест з правами на аудіо
-        cat << 'EOF' > $AND_DIR/app/src/main/AndroidManifest.xml
-        <?xml version="1.0" encoding="utf-8"?>
+        cd app/assets/translations
+        # Створюємо базові словники для 8 мов
+        for lang in uk en es ru de fr pl cs; do
+          echo '{"app_name":"OpenWave","welcome":"Welcome"}' > $lang.json
+        done
+
+    - name: STEP 4 - Android Permissions (Manifest)
+      run: |
+        cd app/android/app/src/main
+        cat << 'EOF' > AndroidManifest.xml
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
             <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
             <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-            <application
-                android:allowBackup="true"
-                android:label="OpenWave"
-                android:icon="@drawable/ic_launcher"
-                android:theme="@style/Theme.OpenWave"
-                android:usesCleartextTraffic="true">
-                <activity
-                    android:name=".MainActivity"
-                    android:exported="true">
-                    <intent-filter>
-                        <action android:name="android.intent.action.MAIN" />
-                        <category android:name="android.intent.category.LAUNCHER" />
-                    </intent-filter>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+            <application android:label="OpenWave" android:icon="@mipmap/ic_launcher" android:usesCleartextTraffic="true">
+                <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true">
+                    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
                 </activity>
             </application>
         </manifest>
         EOF
 
-        # Створюємо базову тему та іконку
-        echo '<resources><string name="app_name">OpenWave</string><style name="Theme.OpenWave" parent="android:Theme.Material3.Dark.NoActionBar"/></resources>' > $RES/values/strings.xml
-        echo '<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FF1DB954" android:pathData="M12,2L2,22h20L12,2z"/></vector>' > $RES/drawable/ic_launcher.xml
-        echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > $RES/xml/data_extraction_rules.xml
-        echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content/>' > $RES/xml/backup_rules.xml
-
-    - name: STEP 4 - Generate MainActivity.kt (Admin Upload Feature)
+    - name: STEP 5 - Build Production APK
       run: |
-        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
-        cat << 'EOF' > $AND_DIR/app/src/main/java/com/openwave/app/MainActivity.kt
-        package com.openwave.app
-        import android.net.Uri
-        import android.os.Bundle
-        import android.provider.OpenableColumns
-        import android.widget.Toast
-        import androidx.activity.ComponentActivity
-        import androidx.activity.compose.setContent
-        import androidx.activity.compose.rememberLauncherForActivityResult
-        import androidx.activity.result.contract.ActivityResultContracts
-        import androidx.compose.foundation.clickable
-        import androidx.compose.foundation.layout.*
-        import androidx.compose.foundation.lazy.LazyColumn
-        import androidx.compose.foundation.lazy.items
-        import androidx.compose.material3.*
-        import androidx.compose.runtime.*
-        import androidx.compose.ui.Alignment
-        import androidx.compose.ui.Modifier
-        import androidx.compose.ui.platform.LocalContext
-        import androidx.compose.ui.text.input.PasswordVisualTransformation
-        import androidx.compose.ui.unit.dp
-        import androidx.media3.common.*
-        import androidx.media3.exoplayer.ExoPlayer
-        import kotlinx.coroutines.*
-        import io.github.jan.supabase.createSupabaseClient
-        import io.github.jan.supabase.storage.Storage
-        import io.github.jan.supabase.storage.storage
-
-        val supUrl = "https://nmowlkjoragnffkxbrzq.supabase.co"
-        val supKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tb3dsa2pvcmFnbmZma3hicnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTYyNjcsImV4cCI6MjA4ODY3MjI2N30.yNHTyZfXOjy-lJNxCOm8F9_YVGWF6kGWmueFYBHTfI0"
-        val supabase = createSupabaseClient(supUrl, supKey) { install(Storage) }
-        data class Track(val title: String, val url: String)
-
-        class MainActivity : ComponentActivity() {
-            override fun onCreate(savedInstanceState: Bundle?) {
-                super.onCreate(savedInstanceState)
-                setContent { MaterialTheme(colorScheme = darkColorScheme()) { Surface(modifier = Modifier.fillMaxSize()) { AppNav() } } }
-            }
-        }
-
-        @Composable fun AppNav() {
-            var screen by remember { mutableStateOf("LOG") }
-            var isAdm by remember { mutableStateOf(false) }
-            if (screen == "LOG") Login({ isAdm=false; screen="MUS" }, { isAdm=true; screen="MUS" })
-            else MusicApp(isAdm) { screen="LOG" }
-        }
-
-        @Composable fun Login(onUsr: () -> Unit, onAdm: () -> Unit) {
-            var pass by remember { mutableStateOf("") }
-            var show by remember { mutableStateOf(false) }
-            val ctx = LocalContext.current
-            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("OpenWave Cloud", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(48.dp))
-                if (!show) {
-                    Button(onClick = onUsr, Modifier.fillMaxWidth().height(50.dp)) { Text("Слухач") }
-                    Spacer(Modifier.height(16.dp))
-                    TextButton(onClick = { show=true }) { Text("Адміністратор", color = MaterialTheme.colorScheme.secondary) }
-                } else {
-                    OutlinedTextField(value = pass, onValueChange = { pass=it }, label = { Text("Пароль") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = { if (pass=="admin777") onAdm() else Toast.makeText(ctx, "Невірний пароль", Toast.LENGTH_SHORT).show() }, Modifier.fillMaxWidth().height(50.dp)) { Text("Увійти") }
-                    TextButton(onClick = { show=false }) { Text("Назад") }
-                }
-            }
-        }
-
-        @Composable fun MusicApp(isAdmin: Boolean, onOut: () -> Unit) {
-            val ctx = LocalContext.current
-            val scope = rememberCoroutineScope()
-            var play by remember { mutableStateOf(false) }
-            var trkName by remember { mutableStateOf("Оберіть трек") }
-            var upld by remember { mutableStateOf(false) }
-            var trks by remember { mutableStateOf(listOf<Track>()) }
-            val exo = remember { ExoPlayer.Builder(ctx).build().apply { addListener(object : Player.Listener { override fun onIsPlayingChanged(p: Boolean) { play = p } }) } }
-            DisposableEffect(Unit) { onDispose { exo.release() } }
-
-            fun load() = scope.launch(Dispatchers.IO) {
-                try {
-                    val b = supabase.storage.from("tracks")
-                    val list = b.list().filter { it.name.endsWith(".mp3") }.map { Track(it.name, b.publicUrl(it.name)) }
-                    withContext(Dispatchers.Main) { trks = list }
-                } catch (e: Exception) {}
-            }
-            LaunchedEffect(Unit) { load() }
-
-            val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-                uri?.let {
-                    var fn = "track.mp3"
-                    ctx.contentResolver.query(it, null, null, null, null)?.use { c ->
-                        val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (c.moveToFirst() && idx >= 0) fn = c.getString(idx)
-                    }
-                    upld = true
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val b = ctx.contentResolver.openInputStream(it)?.readBytes()
-                            if (b != null) supabase.storage.from("tracks").upload(fn, b)
-                            withContext(Dispatchers.Main) { 
-                                Toast.makeText(ctx, "Успішно завантажено!", Toast.LENGTH_SHORT).show()
-                                load() 
-                            }
-                        } catch (e: Exception) {
-                            withContext(Dispatchers.Main) { Toast.makeText(ctx, "Помилка завантаження", Toast.LENGTH_SHORT).show() }
-                        } finally { withContext(Dispatchers.Main) { upld = false } }
-                    }
-                }
-            }
-
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text(if (isAdmin) "Адмін 👑" else "Слухач 🎧", color = MaterialTheme.colorScheme.primary)
-                    TextButton(onClick = { exo.stop(); onOut() }) { Text("Вихід", color = MaterialTheme.colorScheme.error) }
-                }
-                if (isAdmin) {
-                    Button(onClick = { pick.launch("audio/*") }, Modifier.fillMaxWidth().height(55.dp), enabled = !upld) { 
-                        Text(if (upld) "Завантаження в Хмару..." else "➕ Додати MP3") 
-                    }
-                    Spacer(Modifier.height(16.dp))
-                }
-                LazyColumn(Modifier.weight(1f)) {
-                    items(trks) { t ->
-                        Card(Modifier.fillMaxWidth().padding(4.dp).clickable {
-                            trkName = t.title
-                            exo.setMediaItem(MediaItem.fromUri(t.url))
-                            exo.prepare(); exo.play()
-                        }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                            Text(text = "☁️ " + t.title, Modifier.padding(16.dp))
-                        }
-                    }
-                }
-                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                    Row(Modifier.padding(16.dp).fillMaxWidth(), Alignment.CenterVertically, Arrangement.SpaceBetween) {
-                        Text(trkName, Modifier.weight(1f), maxLines = 1)
-                        Button(onClick = { if (play) exo.pause() else exo.play() }) { Text(if (play) "Pause" else "Play") }
-                    }
-                }
-            }
-        }
-        EOF
-
-    - name: STEP 5 - Build APK
-      run: |
-        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
-        cd $AND_DIR
-        GW=$(find . -name "gradlew")
-        chmod +x $GW
-        $GW assembleDebug
+        cd app
+        flutter pub get
+        # Збірка в режимі debug для спрощення першої інсталяції
+        flutter build apk --debug
 
     - name: STEP 6 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Admin-Upload-APK
-        path: "**/build/outputs/apk/debug/*.apk"
+        name: OpenWave-Cloud-Production
+        path: app/build/outputs/apk/debug/app-debug.apk
