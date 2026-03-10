@@ -17,10 +17,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Install Flutter (Upgraded to 3.24.3)
+    # Використовуємо стабільну версію, яка ідеально сумісна з кодом Kimi
+    - name: Install Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.24.3'
+        flutter-version: '3.22.0'
         channel: 'stable'
 
     - name: STEP 1 - Unpack Kimi's Project
@@ -33,9 +34,8 @@ jobs:
     - name: STEP 2 - Hardcode Dependency Fixes
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Жорстко переписуємо версії в pubspec.yaml перед запуском Flutter..."
+        echo "Оновлюємо конфліктні залежності..."
         
-        # Замінюємо старі версії на 'any'
         sed -i 's/intl:.*/intl: ^0.19.0/g' pubspec.yaml
         sed -i 's/package_info_plus:.*/package_info_plus: any/g' pubspec.yaml
         sed -i 's/device_info_plus:.*/device_info_plus: any/g' pubspec.yaml
@@ -43,51 +43,36 @@ jobs:
         sed -i 's/share_plus:.*/share_plus: any/g' pubspec.yaml
         sed -i 's/supabase_flutter:.*/supabase_flutter: any/g' pubspec.yaml
 
-    - name: STEP 3 - Surgical Android Wrapper Regeneration
+    - name: STEP 3 - Fix Kimi's Native Android Wrapper
       run: |
         cd ${{ env.FLUTTER_DIR }}
+        mkdir -p android
         
-        echo "1. Зберігаємо Маніфест (права на аудіо) та іконки..."
-        mkdir -p /tmp/openwave_backup/res
-        cp android/app/src/main/AndroidManifest.xml /tmp/openwave_backup/AndroidManifest.xml || true
-        cp -r android/app/src/main/res/* /tmp/openwave_backup/res/ || true
+        echo "1. Лікуємо помилку 'Your app isn't using AndroidX'..."
+        echo "android.useAndroidX=true" >> android/gradle.properties
+        echo "android.enableJetifier=true" >> android/gradle.properties
         
-        echo "2. Видаляємо стару конфігурацію..."
-        rm -rf android/
+        echo "2. Лікуємо помилку 'Could not get unknown property kotlin_version' ГЛОБАЛЬНО..."
+        echo "kotlin_version=1.9.0" >> android/gradle.properties
         
-        echo "3. Генеруємо ідеальну структуру (БЕЗ автоматичного завантаження пакетів)..."
-        flutter create --no-pub . --platforms android
-        
-        echo "4. Повертаємо Маніфест та іконки на місце..."
-        cp /tmp/openwave_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml || true
-        cp -r /tmp/openwave_backup/res/* android/app/src/main/res/ || true
+        echo "3. Додаємо страхові версії SDK для старих плагінів..."
+        echo "flutter.compileSdkVersion=34" >> android/local.properties
+        echo "flutter.minSdkVersion=24" >> android/local.properties
+        echo "flutter.targetSdkVersion=34" >> android/local.properties
 
     - name: STEP 4 - Pub Get & Generate Code
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        
-        echo "Завантажуємо оновлені пакети..."
         flutter pub get
-        
-        echo "Генеруємо код для бази даних..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 5 - Build Production APK (With Legacy Plugin Fix)
+    - name: STEP 5 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        
-        # МАГІЧНИЙ ФІКС: Штучно додаємо версії SDK для старих плагінів
-        echo "Ін'єкція параметрів SDK у local.properties..."
-        mkdir -p android
-        echo "flutter.compileSdkVersion=34" >> android/local.properties
-        echo "flutter.minSdkVersion=24" >> android/local.properties
-        echo "flutter.targetSdkVersion=34" >> android/local.properties
-        
-        echo "Збираємо APK..."
         flutter build apk --debug
 
     - name: STEP 6 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Full-App
+        name: OpenWave-App-Ready
         path: "**/build/app/outputs/flutter-apk/*.apk"
