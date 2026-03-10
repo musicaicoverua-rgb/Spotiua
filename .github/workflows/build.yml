@@ -32,73 +32,12 @@ jobs:
         }
         EOF
 
-    - name: Smart Code Injection
+    - name: Build App
       run: |
-        unzip "Kimi_Agent_OpenWave Admin Email Config.zip"
+        # Розпаковуємо ваш НОВИЙ архів
+        unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # Запускаємо Python-скрипт, який "розумно" перепише логіку
-        python3 - <<'EOF'
-        import os
-
-        # 1. ЗАХИСТ ЯДРА ТА АВТО-ОНОВЛЕННЯ (useTracks.ts)
-        for root, dirs, files in os.walk('.'):
-            if 'useTracks.ts' in files:
-                path = os.path.join(root, 'useTracks.ts')
-                with open(path, 'r') as f: content = f.read()
-                
-                # Захист від не-адмінів
-                admin_guard = """
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) throw new Error('Не авторизовано');
-                if (user.email.toLowerCase() !== 'andriimykolyshyn@gmail.com') {
-                    throw new Error('Тільки Андрій може завантажувати треки');
-                }
-                """
-                content = content.replace("const { data: { user } } = await supabase.auth.getUser()", admin_guard)
-                
-                # Примусове оновлення списку після успіху
-                content = content.replace("return data", "setTimeout(() => { window.location.href = '/' }, 1000); return data")
-                
-                with open(path, 'w') as f: f.write(content)
-
-        # 2. ПРИХОВУВАННЯ СТОРІНКИ ВІД ЗВИЧАЙНИХ КОРИСТУВАЧІВ (page.tsx)
-        for root, dirs, files in os.walk('.'):
-            if 'upload' in root.split('/') and 'page.tsx' in files:
-                path = os.path.join(root, 'page.tsx')
-                with open(path, 'r') as f: content = f.read()
-                
-                # Отримуємо користувача в компоненті
-                content = content.replace("const { isAuthenticated } = useAuth()", "const { isAuthenticated, user } = useAuth()")
-                
-                # Блокуємо рендер сторінки для не-адмінів
-                lock_screen = """
-                if (isAuthenticated && user?.email !== 'andriimykolyshyn@gmail.com') {
-                    return (
-                        <div className="flex flex-col items-center justify-center py-20">
-                            <h2 className="text-2xl font-bold text-zinc-400">Доступ заборонено</h2>
-                            <p className="text-zinc-500 mt-2">Панель завантаження доступна лише адміністратору.</p>
-                        </div>
-                    )
-                }
-                if (!isAuthenticated) {
-                """
-                content = content.replace("if (!isAuthenticated) {", lock_screen)
-                
-                with open(path, 'w') as f: f.write(content)
-
-        # 3. ВИДАЛЕННЯ ФЕЙКОВОГО ПРОГРЕСУ (UploadTrackForm.tsx)
-        for root, dirs, files in os.walk('.'):
-            if 'UploadTrackForm.tsx' in files:
-                path = os.path.join(root, 'UploadTrackForm.tsx')
-                with open(path, 'r') as f: content = f.read()
-                
-                # Вимикаємо фейковий таймер
-                content = content.replace("setUploadProgress(prev => Math.min(prev + 10, 90))", "/* фейк вимкнено */")
-                
-                with open(path, 'w') as f: f.write(content)
-        EOF
-
-        # 4. ЗАПУСК ЗБІРКИ
+        # Шукаємо скрипт збірки і запускаємо його
         SCRIPT_DIR=$(dirname $(find . -name build-apk.sh | head -n 1))
         cd "$SCRIPT_DIR"
         chmod +x build-apk.sh
@@ -107,6 +46,6 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Spotiua-Smart-Admin
+        name: Spotiua-V2-Native
         path: '**/*.apk'
         
