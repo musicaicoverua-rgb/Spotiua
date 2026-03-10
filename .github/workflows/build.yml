@@ -101,12 +101,17 @@ jobs:
                     with open(path, 'r', encoding='utf-8') as file:
                         content = file.read()
 
-                    # Extract pure code from markdown
-                    blocks = re.findall(r'
+                    # Safely generate backticks for regex without breaking GitHub parsers
+                    b3 = chr(96) * 3
+                    pattern = b3 + r'(?:kotlin|java|kt)?\n?(.*?)' + b3
                     
+                    # Extract pure code from markdown
+                    blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
                     if blocks:
                         content = max(blocks, key=len)
-                    content = re.sub(r'```[a-zA-Z]*', '', content)
+                    
+                    content = content.replace(b3, '')
+                    content = re.sub(r'^(?:kotlin|java|kt)\b', '', content, flags=re.IGNORECASE).strip()
 
                     lines = content.split('\n')
                     package_line = ""
