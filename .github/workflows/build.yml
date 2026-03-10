@@ -32,43 +32,44 @@ jobs:
         }
         EOF
 
-    - name: Patch and Build
+    - name: Patch Admin Logic and Build
       run: |
-        # 1. Розпаковуємо ваш архів
         unzip "Kimi_Agent_OpenWave Admin Email Config.zip"
         
-        # 2. ШУКАЄМО ФАЙЛ useTracks.ts І ВНОСИМО ПРАВКИ (Адмін + Релоад)
+        # 1. ПРАВИМО useTracks.ts (Логіка адміна)
         TARGET_FILE=$(find . -name useTracks.ts | head -n 1)
-        
-        cat << 'EOF' > patch.py
+        python3 - <<EOF
         import sys
-        content = open(sys.argv[1]).read()
+        path = "$TARGET_FILE"
+        with open(path, 'r') as f: content = f.read()
         
-        # Додаємо перевірку вашої пошти
-        admin_check = """
+        # Додаємо сувору перевірку
+        admin_logic = """
             const { data: { user: adminUser } } = await supabase.auth.getUser()
-            if (!adminUser || adminUser.email !== 'andriimykolyshyn@gmail.com') {
-                throw new Error('Доступ дозволено тільки адміністратору Андрію')
+            if (!adminUser) throw new Error('Ви не авторизовані!')
+            if (adminUser.email.toLowerCase() !== 'andriimykolyshyn@gmail.com') {
+                alert('Ви увійшли як: ' + adminUser.email + '. Доступ заборонено!');
+                throw new Error('Тільки Андрій має доступ');
             }
         """
-        content = content.replace(
-            "const { data: { user } } = await supabase.auth.getUser()", 
-            "const { data: { user } } = await supabase.auth.getUser()" + admin_check
-        )
+        content = content.replace("const { data: { user } } = await supabase.auth.getUser()", "const { data: { user } } = await supabase.auth.getUser()" + admin_logic)
+        content = content.replace("return data", "alert('Успіх! Оновлюємо список.'); window.location.href = '/'; return data")
         
-        # Додаємо автоматичне оновлення сторінки
-        content = content.replace(
-            "return data", 
-            "setTimeout(() => { window.location.href = '/' }, 1500); return data"
-        )
-        
-        with open(sys.argv[1], 'w') as f:
-            f.write(content)
+        with open(path, 'w') as f: f.write(content)
         EOF
-        
-        python3 patch.py "$TARGET_FILE"
 
-        # 3. ЗАПУСКАЄМО САМУ ЗБІРКУ
+        # 2. ПРАВИМО UploadTrackForm.tsx (Щоб не було фейкових успіхів)
+        FORM_FILE=$(find . -name UploadTrackForm.tsx | head -n 1)
+        python3 - <<EOF
+        import sys
+        path = "$FORM_FILE"
+        with open(path, 'r') as f: content = f.read()
+        # Видаляємо фейкову анімацію завантаження, щоб бачити реальний результат
+        content = content.replace("setUploadProgress(prev => Math.min(prev + 10, 90))", "setUploadProgress(100)")
+        with open(path, 'w') as f: f.write(content)
+        EOF
+
+        # 3. ЗБІРКА
         SCRIPT_DIR=$(dirname $(find . -name build-apk.sh | head -n 1))
         cd "$SCRIPT_DIR"
         chmod +x build-apk.sh
@@ -77,5 +78,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Spotiua-Final-Admin-Version
+        name: Spotiua-Admin-Final
         path: '**/*.apk'
