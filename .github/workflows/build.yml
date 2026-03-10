@@ -32,44 +32,52 @@ jobs:
         }
         EOF
 
-    - name: Patch Admin Logic and Build
+    - name: Full Admin Patch and Build
       run: |
         unzip "Kimi_Agent_OpenWave Admin Email Config.zip"
         
-        # 1. ПРАВИМО useTracks.ts (Логіка адміна)
+        # 1. ЗАХИСТ БАЗИ ДАНИХ (useTracks.ts)
+        # Додаємо перевірку емейлу на рівні запиту
         TARGET_FILE=$(find . -name useTracks.ts | head -n 1)
         python3 - <<EOF
         import sys
         path = "$TARGET_FILE"
         with open(path, 'r') as f: content = f.read()
-        
-        # Додаємо сувору перевірку
         admin_logic = """
             const { data: { user: adminUser } } = await supabase.auth.getUser()
-            if (!adminUser) throw new Error('Ви не авторизовані!')
-            if (adminUser.email.toLowerCase() !== 'andriimykolyshyn@gmail.com') {
-                alert('Ви увійшли як: ' + adminUser.email + '. Доступ заборонено!');
-                throw new Error('Тільки Андрій має доступ');
+            if (!adminUser || adminUser.email !== 'andriimykolyshyn@gmail.com') {
+                throw new Error('Тільки адмін має доступ')
             }
         """
         content = content.replace("const { data: { user } } = await supabase.auth.getUser()", "const { data: { user } } = await supabase.auth.getUser()" + admin_logic)
-        content = content.replace("return data", "alert('Успіх! Оновлюємо список.'); window.location.href = '/'; return data")
-        
+        content = content.replace("return data", "setTimeout(() => { window.location.href = '/' }, 1500); return data")
         with open(path, 'w') as f: f.write(content)
         EOF
 
-        # 2. ПРАВИМО UploadTrackForm.tsx (Щоб не було фейкових успіхів)
-        FORM_FILE=$(find . -name UploadTrackForm.tsx | head -n 1)
+        # 2. ПРИХОВУЄМО СТОРІНКУ ЗАВАНТАЖЕННЯ (app/upload/page.tsx)
+        # Якщо заходить не адмін - він побачить повідомлення про помилку замість форми
+        PAGE_FILE=$(find . -name page.tsx | grep "upload" | head -n 1)
         python3 - <<EOF
         import sys
-        path = "$FORM_FILE"
+        path = "$PAGE_FILE"
         with open(path, 'r') as f: content = f.read()
-        # Видаляємо фейкову анімацію завантаження, щоб бачити реальний результат
-        content = content.replace("setUploadProgress(prev => Math.min(prev + 10, 90))", "setUploadProgress(100)")
+        # Додаємо перевірку емейлу прямо в компонент сторінки
+        content = content.replace(
+            "const { isAuthenticated } = useAuth()", 
+            "const { isAuthenticated, user } = useAuth()"
+        )
+        content = content.replace(
+            "if (!isAuthenticated) {", 
+            "if (!isAuthenticated || user?.email !== 'andriimykolyshyn@gmail.com') { return <div className='p-20 text-center'>Доступ тільки для адміністратора</div>; } if (!isAuthenticated) {"
+        )
         with open(path, 'w') as f: f.write(content)
         EOF
 
-        # 3. ЗБІРКА
+        # 3. ПРИХОВУЄМО КНОПКУ В МЕНЮ (Пошук по всім файлам)
+        # Знаходимо де в коді є посилання на завантаження і ховаємо його
+        find . -name "*.tsx" -exec sed -i "s/{isAuthenticated && (/{isAuthenticated \&\& user?.email === 'andriimykolyshyn@gmail.com' \&\& (/g" {} +
+
+        # 4. ЗБІРКА
         SCRIPT_DIR=$(dirname $(find . -name build-apk.sh | head -n 1))
         cd "$SCRIPT_DIR"
         chmod +x build-apk.sh
@@ -78,5 +86,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Spotiua-Admin-Final
+        name: Spotiua-Strict-Admin-Only
         path: '**/*.apk'
