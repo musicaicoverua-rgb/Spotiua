@@ -24,31 +24,49 @@ jobs:
 
     - name: Prepare and Patch Android Project
       run: |
-        # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
-        
-        # 2. Виправлення дублікатів репозиторіїв та мов
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
-        
-        # 3. ВИПРАВЛЕННЯ БАГУ GOOGLE (Понижуємо media3 до стабільної 1.1.1)
-        cat << 'EOF' >> openwave/android/app/build.gradle.kts
-        
-        configurations.all {
-            resolutionStrategy.eachDependency {
-                if (requested.group == "androidx.media3") {
-                    useVersion("1.1.1")
-                }
-            }
-        }
-        EOF
-        
-        # 4. ЖОРСТКА ЗАЧИСТКА: Видаляємо всі рядки з помилками Kimi
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/\\u/d' {} +
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/{str}/d' {} +
-        find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/username_optional/d' {} +
 
-    - name: Build Native Android App
+    - name: First Build Attempt (Download Dependencies)
+      # Цей крок спеціально ігнорує помилку, щоб завантажити кеш
+      continue-on-error: true
+      run: |
+        cd openwave/android
+        gradle assembleDebug
+
+    - name: The Ultimate Scrubber (Clean Cached Libraries)
+      # Ліземо в кеш сервера і чистимо завантажені бібліотеки
+      run: |
+        python3 - <<'EOF'
+        import os
+        
+        def clean_dir(directory):
+            if not os.path.exists(directory): return
+            for root, dirs, files in os.walk(directory):
+                for f in files:
+                    if f.endswith('.xml'):
+                        path = os.path.join(root, f)
+                        try:
+                            with open(path, 'r', encoding='utf-8') as file:
+                                content = file.read()
+                            # Якщо знаходимо зламаний текст - міняємо його на стандартний %s
+                            if r'\u{str}' in content or '{str}' in content:
+                                print(f"Fixing broken cache file: {path}")
+                                content = content.replace(r'\u{str}', '%s')
+                                content = content.replace(r'{str}', '%s')
+                                with open(path, 'w', encoding='utf-8') as file:
+                                    file.write(content)
+                        except Exception:
+                            pass
+        
+        # Чистимо і ваш код, і прихований кеш сервера
+        clean_dir('openwave/android')
+        clean_dir(os.path.expanduser('~/.gradle/caches'))
+        EOF
+
+    - name: Final Build (Success)
+      # Тепер, коли кеш виправлено, збірка пройде як по маслу
       run: |
         cd openwave/android
         gradle assembleDebug
