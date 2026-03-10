@@ -27,14 +27,15 @@ jobs:
         # 1. Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 2. Виправлення помилки дублікатів репозиторіїв
+        # 2. Виправлення дублікатів репозиторіїв
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
+        
+        # 3. ВИПРАВЛЕННЯ KOTLIN: Видаляємо зламаний рядок оптимізації мов
+        sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
 
     - name: Build Native Android App
       run: |
         cd openwave/android
-        
-        # Завдяки кроку 'Setup Gradle', ця команда тепер 100% використає версію 8.4
         gradle assembleDebug
 
     - name: Upload APK
