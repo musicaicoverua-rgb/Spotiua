@@ -58,7 +58,7 @@ jobs:
                         dir.walkTopDown().filter { it.name.endsWith(".xml") }.forEach { file ->
                             try {
                                 var text = file.readText()
-                                var changed = False
+                                var changed = false // Fixed: was 'False'
                                 if (text.contains("artist_name")) { text = text.replace(regArtist, ""); changed = true }
                                 if (text.contains("username_optional")) { text = text.replace(regUser, ""); changed = true }
                                 if (text.contains(uStr)) { text = text.replace(uStr, "str"); changed = true }
