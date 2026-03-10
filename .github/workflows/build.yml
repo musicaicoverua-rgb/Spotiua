@@ -30,7 +30,19 @@ jobs:
         echo "Знайдено проект Flutter у папці: $FLUTTER_DIR"
         echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
 
-    - name: STEP 2 - Surgical Android Wrapper Regeneration
+    - name: STEP 2 - Hardcode Dependency Fixes (No Flutter required)
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
+        echo "Жорстко переписуємо версії в pubspec.yaml перед запуском Flutter..."
+        
+        # Замінюємо старі версії на 'any' або правильні напряму в тексті
+        sed -i 's/intl:.*/intl: ^0.19.0/g' pubspec.yaml
+        sed -i 's/package_info_plus:.*/package_info_plus: any/g' pubspec.yaml
+        sed -i 's/device_info_plus:.*/device_info_plus: any/g' pubspec.yaml
+        sed -i 's/connectivity_plus:.*/connectivity_plus: any/g' pubspec.yaml
+        sed -i 's/share_plus:.*/share_plus: any/g' pubspec.yaml
+
+    - name: STEP 3 - Surgical Android Wrapper Regeneration
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
@@ -42,32 +54,29 @@ jobs:
         echo "2. Видаляємо стару конфігурацію..."
         rm -rf android/
         
-        echo "3. Генеруємо ідеальну структуру для найновішого Flutter 3.24.3..."
-        flutter create . --platforms android
+        echo "3. Генеруємо ідеальну структуру (БЕЗ автоматичного завантаження пакетів)..."
+        flutter create --no-pub . --platforms android
         
         echo "4. Повертаємо Маніфест та іконки на місце..."
         cp /tmp/openwave_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml || true
         cp -r /tmp/openwave_backup/res/* android/app/src/main/res/ || true
 
-    - name: STEP 3 - Fix Dependencies & Generate Code
+    - name: STEP 4 - Pub Get & Generate Code
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
-        # Оновлюємо конфліктні пакети до найновіших версій, які тепер ідеально підходять
-        flutter pub add intl:any package_info_plus:any device_info_plus:any share_plus:any connectivity_plus:any
-        
+        echo "Тепер безпечно завантажуємо оновлені пакети..."
         flutter pub get
         
-        # Генеруємо код для бази даних (Drift) та ін'єкцій
+        echo "Генеруємо код для бази даних (Drift)..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 4 - Build Production APK
+    - name: STEP 5 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        # Збираємо готовий додаток
         flutter build apk --debug
 
-    - name: STEP 5 - Upload APK
+    - name: STEP 6 - Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: OpenWave-Full-App
