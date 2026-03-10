@@ -57,21 +57,17 @@ jobs:
         }
         EOF
 
-    - name: Generator of Missing LLM Resources (Icons & Themes)
+    - name: Generator of Missing LLM Resources
       run: |
-        echo "Створюємо відсутні файли, про які забув Kimi..."
         RES_DIR="openwave/android/app/src/main/res"
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26"
         
-        # 1. Відсутні правила бекапу
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
         
-        # 2. Назва додатку та Тема (Використовуємо унікальні імена файлів, щоб нічого не затерти)
         echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string></resources>' > "$RES_DIR/values/kimi_missing_strings.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><resources><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_missing_themes.xml"
         
-        # 3. Базова Іконка Додатку (Синій квадрат-плейсхолдер)
         cat << 'EOF' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         <?xml version="1.0" encoding="utf-8"?>
         <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
@@ -79,8 +75,32 @@ jobs:
         </vector>
         EOF
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
+
+    - name: Clean AI Markdown Artifacts from Kotlin
+      run: |
+        echo "Стерилізуємо код від розмітки Kimi..."
+        # 1. Видаляємо всі рядки з маркдауном ``` у всіх Kotlin-файлах
+        find openwave/android/app/src/main/java -name "*.kt" -type f -exec sed -i '/^ *```/d' {} +
         
-        echo "Всі відсутні ресурси успішно згенеровано!"
+        # 2. Python-хірург: обрізає будь-який вступний текст від ШІ до слова "package"
+        python3 - <<'EOF'
+        import os
+        for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
+            for f in files:
+                if f.endswith('.kt'):
+                    path = os.path.join(root, f)
+                    try:
+                        with open(path, 'r', encoding='utf-8') as file:
+                            content = file.read()
+                        
+                        pkg_idx = content.find('package ')
+                        if pkg_idx > 0:
+                            content = content[pkg_idx:]
+                            with open(path, 'w', encoding='utf-8') as file:
+                                file.write(content)
+                    except Exception:
+                        pass
+        EOF
 
     - name: Build APK
       run: |
