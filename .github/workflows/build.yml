@@ -17,11 +17,13 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Using the latest Flutter 3.24.3
-    - name: Install Flutter
+    # THE GOLDEN FIX: Downgrading to stable 3.19.6
+    # This version perfectly bridges Kimi's older Gradle plugins 
+    # with the newer Dart 3.3 SDK requirements.
+    - name: Install Flutter (Stable 3.19.6)
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.24.3'
+        flutter-version: '3.19.6'
         channel: 'stable'
 
     - name: STEP 1 - Unpack Project
@@ -31,52 +33,44 @@ jobs:
         echo "Found Flutter project in directory: $FLUTTER_DIR"
         echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
 
-    - name: STEP 2 - The Ultimate Dependency Upgrade
+    - name: STEP 2 - Fix Kimi's Native Android Config
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Updating libraries to modern 2024 standards..."
         
-        # THE MAIN FIX: Update Supabase to avoid pulling the legacy app_links plugin
-        sed -i 's/supabase_flutter:.*/supabase_flutter: ^2.6.0/g' pubspec.yaml
+        mkdir -p android
         
-        # Update other problematic plugins
-        sed -i 's/intl:.*/intl: ^0.19.0/g' pubspec.yaml
-        sed -i 's/package_info_plus:.*/package_info_plus: ^8.0.0/g' pubspec.yaml
-        sed -i 's/device_info_plus:.*/device_info_plus: ^10.1.0/g' pubspec.yaml
-        sed -i 's/connectivity_plus:.*/connectivity_plus: ^6.0.4/g' pubspec.yaml
-        sed -i 's/share_plus:.*/share_plus: ^9.0.0/g' pubspec.yaml
+        echo "1. Fixing Kotlin version globally..."
+        echo "kotlin_version=1.9.0" >> android/gradle.properties
+        
+        echo "2. Enabling AndroidX..."
+        echo "android.useAndroidX=true" >> android/gradle.properties
+        echo "android.enableJetifier=true" >> android/gradle.properties
+        
+        echo "3. Injecting SDK versions for legacy plugins..."
+        echo "flutter.compileSdkVersion=34" >> android/local.properties
+        echo "flutter.minSdkVersion=24" >> android/local.properties
+        echo "flutter.targetSdkVersion=34" >> android/local.properties
 
-    - name: STEP 3 - Clean Android Wrapper Generation
+    - name: STEP 3 - Resolve Dependencies & Generate Code
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
-        echo "1. Backing up the original Manifest (with audio permissions)..."
-        mkdir -p /tmp/openwave_backup/res
-        cp android/app/src/main/AndroidManifest.xml /tmp/openwave_backup/AndroidManifest.xml || true
-        cp -r android/app/src/main/res/* /tmp/openwave_backup/res/ || true
+        echo "Setting flexible versions for minor conflicts..."
+        sed -i 's/intl:.*/intl: any/g' pubspec.yaml
+        sed -i 's/package_info_plus:.*/package_info_plus: any/g' pubspec.yaml
         
-        echo "2. Removing the old broken Android configuration..."
-        rm -rf android/
-        
-        echo "3. Creating a modern clean structure..."
-        flutter create --no-pub --platforms android .
-        
-        echo "4. Restoring the Manifest and resources..."
-        cp /tmp/openwave_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml || true
-        cp -r /tmp/openwave_backup/res/* android/app/src/main/res/ || true
-
-    - name: STEP 4 - Pub Get & Generate Code
-      run: |
-        cd ${{ env.FLUTTER_DIR }}
+        echo "Downloading packages..."
         flutter pub get
+        
+        echo "Running code generator for database..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 5 - Build Production APK
+    - name: STEP 4 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
         flutter build apk --debug
 
-    - name: STEP 6 - Upload APK
+    - name: STEP 5 - Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: OpenWave-App-Ready
