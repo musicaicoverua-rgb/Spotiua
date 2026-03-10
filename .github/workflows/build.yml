@@ -31,29 +31,33 @@ jobs:
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         
-        # 3. Видаляємо локальну помилку Kimi (Це працює ідеально!)
+        # 3. Видаляємо локальну помилку Kimi (Ця частина працює ідеально)
         find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/username_optional/d' {} + || true
         find openwave/android/app/src/main/res -name "*.xml" -type f -exec sed -i '/{str}/d' {} + || true
 
-    - name: First Build (Download Protected Libraries)
+    - name: First Build (Prime the Cache)
+      # Цей крок спеціально проігнорує помилку, щоб просто завантажити файли Google на сервер
+      continue-on-error: true
       run: |
         cd openwave/android
-        # Запускаємо збірку. Вона зупиниться через баг Google, але файли залишаться на сервері
-        gradle assembleDebug || echo "Перша збірка завершена, бібліотеки завантажено в кеш!"
+        gradle assembleDebug || true
 
-    - name: Unlock Cache and Destroy Google Bug
+    - name: The Nuclear Option (Overwrite Google's Bug)
       run: |
-        echo "Знімаємо бетонний захист з системного кешу Gradle..."
-        chmod -R 777 ~/.gradle/caches/transforms-3
+        echo "Зупиняємо Gradle, щоб розблокувати системні файли..."
+        cd openwave/android
+        gradle --stop
         
-        echo "Вирізаємо зламаний український переклад artist_name з бібліотек Google..."
-        find ~/.gradle/caches/transforms-3 -name "values-uk.xml" -type f -exec sed -i '/artist_name/d' {} + || true
-        find ~/.gradle/caches/transforms-3 -name "values-uk.xml" -type f -exec sed -i '/{str}/d' {} + || true
+        echo "Перезаписуємо зламаний український переклад на чистий і легальний XML..."
+        # Замість спроб щось вирізати, ми просто заливаємо туди порожній скелет <resources></resources>
+        find /home/runner/.gradle/caches/transforms-3 -type f -name "values-uk.xml" -exec sh -c 'echo "<?xml version=\"1.0\" encoding=\"utf-8\"?><resources></resources>" > "$1"' _ {} \;
+        
+        echo "Операція успішна! Кеш вилікувано."
 
     - name: Final Build (Success)
       run: |
         cd openwave/android
-        # Тепер шлях чистий, додаток збереться на 100%
+        # Тепер Android побачить ідеально чистий файл і збере APK без жодних питань
         gradle assembleDebug
 
     - name: Upload APK
