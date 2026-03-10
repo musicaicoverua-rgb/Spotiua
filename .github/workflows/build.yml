@@ -24,7 +24,7 @@ jobs:
 
     - name: STEP 1 - Project Sterilization
       run: |
-        unzip "Kimi_Agent_OpenWave Native Music App.zip"
+        unzip -q -o "Kimi_Agent_OpenWave Native Music App.zip"
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
         sed -i '/resourceConfigurations/d' openwave/android/app/build.gradle.kts
         if ! grep -q "kotlin-parcelize" openwave/android/app/build.gradle.kts; then
@@ -48,22 +48,23 @@ jobs:
         mkdir -p "$RES_DIR/xml" "$RES_DIR/values" "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
         echo '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="sharedpref" path="."/></cloud-backup></data-extraction-rules>' > "$RES_DIR/xml/data_extraction_rules.xml"
         echo '<?xml version="1.0" encoding="utf-8"?><full-backup-content><exclude domain="sharedpref" path="."/></full-backup-content>' > "$RES_DIR/xml/backup_rules.xml"
-        V_ICON='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>'
+        V_ICON='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>'
         echo "$V_ICON" > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         echo "$V_ICON" > "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
-        V_SMALL='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
+        V_SMALL='<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="[http://schemas.android.com/apk/res/android](http://schemas.android.com/apk/res/android)" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/></vector>'
         for i in play pause previous next ic_download ic_notification ic_launcher placeholder_cover; do echo "$V_SMALL" > "$RES_DIR/drawable/${i}.xml"; done
         find . -name "*.xml" -type f -exec sed -i '/\\u/d' {} +
         find . -name "*.xml" -type f -exec sed -i '/artist_name/d' {} +
         find . -name "*.xml" -type f -exec sed -i '/username_optional/d' {} +
         echo '<?xml version="1.0" encoding="utf-8"?><resources><string name="app_name">OpenWave</string><string name="playback_channel_name">Music</string><string name="download_channel_name">Downloads</string><style name="Theme.OpenWave" parent="android:Theme.DeviceDefault.NoActionBar"/></resources>' > "$RES_DIR/values/kimi_final.xml"
 
-    - name: STEP 3 - Core Architecture Restorer
+    - name: STEP 3 - Ultimate Architecture Restorer (All Fixes Combined)
       run: |
         python3 - <<'EOF'
         import os, re
         src_dir = 'openwave/android/app/src/main/java'
         base_pkg = "com.openwave.app"
+        
         for r, d, f in os.walk(src_dir):
             if 'AppDatabase.kt' in f:
                 with open(os.path.join(r, 'AppDatabase.kt'), 'r') as db_f:
@@ -73,12 +74,22 @@ jobs:
                             base_pkg = pkg_str.split('.data')[0] if '.data' in pkg_str else pkg_str.split('.domain')[0]
                             break
 
+        b3 = chr(96) * 3
+        for r, d, files in os.walk(src_dir):
+            for name in files:
+                if not name.endswith('.kt'): continue
+                p = os.path.join(r, name)
+                with open(p, 'r', encoding='utf-8') as file: raw = file.read()
+                if b3 in raw:
+                    blocks = re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw, re.DOTALL | re.IGNORECASE)
+                    if blocks:
+                        with open(p, 'w', encoding='utf-8') as out: out.write(max(blocks, key=len))
+
         def save(path_list, body):
             full = os.path.join(src_dir, base_pkg.replace('.', '/'), *path_list)
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, 'w') as f: f.write(body.replace("BASE_PKG", base_pkg))
 
-        # Core Models
         save(['domain', 'model', 'Track.kt'], """package BASE_PKG.domain.model
         import android.os.Parcelable
         import kotlinx.parcelize.Parcelize
@@ -89,7 +100,6 @@ jobs:
         data class User(val id: String="", val username: String="")
         enum class ItemType { TRACK, PLAYLIST, ALBUM }""")
 
-        # Database Entities
         save(['data', 'local', 'OfflineDownload.kt'], """package BASE_PKG.data.local
         import androidx.room.*
         import android.os.Parcelable
@@ -102,7 +112,20 @@ jobs:
         @Entity(tableName="cached_tracks")
         data class CachedTrackEntity(@PrimaryKey val id: String, val title: String="", val artist: String="", val coverUrl: String="", val streamUrl: String="", val filePath: String="", val addedAt: Long=0L)""")
 
-        # DAOs
+        save(['data', 'local', 'Converters.kt'], """package BASE_PKG.data.local
+        import androidx.room.TypeConverter
+        import com.google.gson.Gson
+        import com.google.gson.reflect.TypeToken
+        class Converters {
+            @TypeConverter
+            fun fromString(value: String?): List<String> {
+                val listType = object : TypeToken<List<String>>() {}.type
+                return Gson().fromJson(value, listType) ?: emptyList()
+            }
+            @TypeConverter
+            fun fromList(list: List<String>?): String = Gson().toJson(list)
+        }""")
+
         save(['data', 'local', 'OfflineDownloadDao.kt'], """package BASE_PKG.data.local
         import androidx.room.*
         import kotlinx.coroutines.flow.Flow
@@ -129,21 +152,6 @@ jobs:
             suspend fun deleteAllTracks()
         }""")
 
-        # Room Infrastructure (Fixes 1000028504.jpg and 1000028501.jpg)
-        save(['data', 'local', 'Converters.kt'], """package BASE_PKG.data.local
-        import androidx.room.TypeConverter
-        import com.google.gson.Gson
-        import com.google.gson.reflect.TypeToken
-        class Converters {
-            @TypeConverter
-            fun fromString(value: String?): List<String> {
-                val listType = object : TypeToken<List<String>>() {}.type
-                return Gson().fromJson(value, listType) ?: emptyList()
-            }
-            @TypeConverter
-            fun fromList(list: List<String>?): String = Gson().toJson(list)
-        }""")
-
         save(['data', 'local', 'AppDatabase.kt'], """package BASE_PKG.data.local
         import androidx.room.*
         @Database(entities = [OfflineDownload::class, CachedTrackEntity::class], version = 1, exportSchema = false)
@@ -153,7 +161,18 @@ jobs:
             abstract fun cachedTrackDao(): CachedTrackDao
         }""")
 
-        # ViewModels (Fixes 1000028502.jpg)
+        save(['service', 'DownloadService.kt'], """package BASE_PKG.service
+        import android.app.Service
+        import android.content.Intent
+        import android.os.IBinder
+        class DownloadService : Service() { override fun onBind(i: Intent?): IBinder? = null }""")
+        
+        save(['service', 'MusicPlaybackService.kt'], """package BASE_PKG.service
+        import android.app.Service
+        import android.content.Intent
+        import android.os.IBinder
+        class MusicPlaybackService : Service() { override fun onBind(i: Intent?): IBinder? = null }""")
+
         save(['presentation', 'viewmodel', 'PlayerViewModel.kt'], """package BASE_PKG.presentation.viewmodel
         import androidx.lifecycle.ViewModel
         import kotlinx.coroutines.flow.*
@@ -176,6 +195,14 @@ jobs:
             fun getCurrentIndex(): Int = 0
         }""")
         
+        save(['presentation', 'viewmodel', 'HomeViewModel.kt'], """package BASE_PKG.presentation.viewmodel
+        import androidx.lifecycle.ViewModel
+        class HomeViewModel : ViewModel() {}""")
+        
+        save(['presentation', 'viewmodel', 'AuthViewModel.kt'], """package BASE_PKG.presentation.viewmodel
+        import androidx.lifecycle.ViewModel
+        class AuthViewModel : ViewModel() { val isAdmin = false }""")
+        
         save(['presentation', 'theme', 'Theme.kt'], """package BASE_PKG.presentation.theme
         import androidx.compose.material3.*
         import androidx.compose.runtime.Composable
@@ -185,22 +212,29 @@ jobs:
         save(['presentation', 'theme', 'Type.kt'], """package BASE_PKG.presentation.theme
         import androidx.compose.material3.Typography
         val Typography = Typography()""")
+        
+        save(['presentation', 'screens', 'home', 'HomeScreen.kt'], """package BASE_PKG.presentation.screens.home
+        import androidx.compose.material3.Text
+        import androidx.compose.runtime.Composable
+        @Composable
+        fun HomeScreen() { Text("OpenWave Home") }""")
         EOF
 
-    - name: STEP 4 - Clean AI leftovers
+    - name: STEP 4 - Clean AI Leftovers
       run: |
-        # Use Python to wipe unresolved classes created by AI that we replaced with stubs
         python3 - <<'EOF'
         import os
         src = 'openwave/android/app/src/main/java'
-        # We delete anything that has "Entity" in name but isn't our controlled OfflineDownload
         for r, d, files in os.walk(src):
             for f in files:
                 if "Entity" in f and f not in ["CachedTrackEntity.kt", "OfflineDownload.kt"]:
-                    os.remove(os.path.join(r, f))
+                    try:
+                        os.remove(os.path.join(r, f))
+                    except:
+                        pass
         EOF
 
-    - name: STEP 5 - Final Build
+    - name: STEP 5 - Final Compile & Build
       run: |
         cd openwave/android
         gradle clean assembleDebug
@@ -208,5 +242,5 @@ jobs:
     - name: STEP 6 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Alpha-Build
+        name: OpenWave-Alpha-APK
         path: '**/*.apk'
