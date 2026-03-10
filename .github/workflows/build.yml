@@ -19,20 +19,22 @@ jobs:
 
     - name: Prepare and Patch Android Project
       run: |
-        # 1. Розпаковуємо архів
+        # Розпаковуємо архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 2. ВИПРАВЛЕННЯ ПОМИЛКИ ДУБЛІКАТІВ РЕПОЗИТОРІЇВ
-        # Міняємо сувору заборону на дозвіл використовувати проектні налаштування
+        # Виправлення помилки дублікатів репозиторіїв
         sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
 
     - name: Build Native Android App
       run: |
-        # Переходимо в папку Android
         cd openwave/android
         
-        # Запускаємо збірку
-        gradle assembleDebug
+        # ВИПРАВЛЕННЯ ВЕРСІЇ GRADLE:
+        # Створюємо локальний Gradle версії 8.4 замість несумісного 9.3.1
+        gradle wrapper --gradle-version 8.4
+        
+        # Запускаємо збірку через сумісну версію
+        ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
