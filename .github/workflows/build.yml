@@ -101,11 +101,9 @@ jobs:
                     with open(path, 'r', encoding='utf-8') as file:
                         content = file.read()
 
-                    # Safely generate backticks for regex without breaking GitHub parsers
+                    # Extract pure code from markdown safely
                     b3 = chr(96) * 3
                     pattern = b3 + r'(?:kotlin|java|kt)?\n?(.*?)' + b3
-                    
-                    # Extract pure code from markdown
                     blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
                     if blocks:
                         content = max(blocks, key=len)
@@ -122,8 +120,7 @@ jobs:
                     for line in lines:
                         stripped = line.strip()
                         if stripped.startswith('package '):
-                            if not package_line:
-                                package_line = stripped
+                            if not package_line: package_line = stripped
                         elif stripped.startswith('import '):
                             imports.add(stripped)
                         else:
@@ -145,7 +142,7 @@ jobs:
 
                     body_lines = body_lines[start_idx:]
 
-                    # Infer package if Kimi forgot it
+                    # Infer package if missing
                     if not package_line:
                         pkg_path = ""
                         if 'java/' in path: pkg_path = path.split('java/')[1]
@@ -153,28 +150,92 @@ jobs:
                         if pkg_path:
                             pkg_dir = os.path.dirname(pkg_path)
                             pkg_name = pkg_dir.replace('/', '.').replace('\\', '.')
-                            if pkg_name:
-                                package_line = f"package {pkg_name}"
+                            if pkg_name: package_line = f"package {pkg_name}"
 
-                    # Strictly rebuild the file
+                    # Rebuild file strictly
                     final_content = []
                     if package_line:
                         final_content.append(package_line)
                         final_content.append("")
-
                     for imp in sorted(list(imports)):
                         final_content.append(imp)
-
-                    if imports:
-                        final_content.append("")
-
+                    if imports: final_content.append("")
                     final_content.extend(body_lines)
 
                     with open(path, 'w', encoding='utf-8') as f_out:
                         f_out.write('\n'.join(final_content))
-                    print(f"Reorganized and cleaned: {f}")
                 except Exception as e:
-                    print(f"Error processing {f}: {e}")
+                    pass
+        EOF
+
+    - name: The Room Database Healer
+      run: |
+        echo "Healing missing Room DB Entities and Converters..."
+        python3 - <<'EOF'
+        import os
+
+        # 1. Find AppDatabase.kt
+        db_path = None
+        for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
+            if 'AppDatabase.kt' in files:
+                db_path = os.path.join(root, 'AppDatabase.kt')
+                break
+
+        if db_path:
+            db_dir = os.path.dirname(db_path)
+            with open(db_path, 'r', encoding='utf-8') as f:
+                db_content = f.read()
+
+            # 2. Search for the missing files
+            history_pkg = None
+            converters_pkg = None
+
+            for root, dirs, files in os.walk('openwave/android/app/src/main/java'):
+                for f in files:
+                    if f == 'ListeningHistoryEntity.kt':
+                        with open(os.path.join(root, f), 'r', encoding='utf-8') as temp_f:
+                            for line in temp_f:
+                                if line.startswith('package '):
+                                    history_pkg = line.replace('package ', '').strip() + '.ListeningHistoryEntity'
+                                    break
+                    if f == 'Converters.kt':
+                        with open(os.path.join(root, f), 'r', encoding='utf-8') as temp_f:
+                            for line in temp_f:
+                                if line.startswith('package '):
+                                    converters_pkg = line.replace('package ', '').strip() + '.Converters'
+                                    break
+
+            # 3. Inject imports if files exist elsewhere
+            imports_to_add = []
+            if history_pkg and history_pkg not in db_content: imports_to_add.append(f"import {history_pkg}")
+            if converters_pkg and converters_pkg not in db_content: imports_to_add.append(f"import {converters_pkg}")
+
+            if imports_to_add:
+                lines = db_content.split('\n')
+                for i, line in enumerate(lines):
+                    if line.startswith('package '):
+                        lines.insert(i + 1, '\n' + '\n'.join(imports_to_add))
+                        break
+                with open(db_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                print("Injected missing imports into AppDatabase.kt")
+
+            # 4. Generate the files if Kimi completely forgot them
+            db_pkg = "com.openwave.app.data.local"
+            for line in db_content.split('\n'):
+                if line.startswith('package '):
+                    db_pkg = line.replace('package ', '').strip()
+                    break
+
+            if not history_pkg:
+                code = f"package {db_pkg}\n\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n\n@Entity(tableName = \"listening_history\")\ndata class ListeningHistoryEntity(\n    @PrimaryKey val id: String = \"\",\n    val trackId: String = \"\",\n    val timestamp: Long = 0L\n)\n"
+                with open(os.path.join(db_dir, 'ListeningHistoryEntity.kt'), 'w', encoding='utf-8') as f: f.write(code)
+                print("Created missing ListeningHistoryEntity.kt")
+
+            if not converters_pkg:
+                code = f"package {db_pkg}\n\nimport androidx.room.TypeConverter\n\nclass Converters {{\n    @TypeConverter\n    fun fromString(value: String?): List<String> {{\n        return value?.split(\",\") ?: emptyList()\n    }}\n    @TypeConverter\n    fun toString(list: List<String>?): String {{\n        return list?.joinToString(\",\") ?: \"\"\n    }}\n}}\n"
+                with open(os.path.join(db_dir, 'Converters.kt'), 'w', encoding='utf-8') as f: f.write(code)
+                print("Created missing Converters.kt")
         EOF
 
     - name: Build APK
