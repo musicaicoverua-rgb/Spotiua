@@ -14,25 +14,23 @@ jobs:
     - name: Set up Java
       uses: actions/setup-java@v4
       with:
-        java-version: '17' # Для нативних Android додатків зазвичай краще використовувати Java 17
+        java-version: '17'
         distribution: 'temurin'
 
     - name: Build Native Android App
       run: |
-        # 1. Розпаковуємо ваш новий архів
+        # Розпаковуємо ваш архів
         unzip "Kimi_Agent_OpenWave Native Music App.zip"
         
-        # 2. Переходимо в папку Android, яку створив Kimi
+        # Переходимо в папку Android
         cd openwave/android
         
-        # 3. Даємо права на виконання інструменту збірки Gradle
-        chmod +x gradlew
-        
-        # 4. Запускаємо стандартну збірку Android-додатка
-        ./gradlew assembleDebug
+        # Використовуємо глобальний gradle, оскільки gradlew відсутній
+        gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Spotiua-Native-App
+        name: Spotiua-Native-Final
         path: '**/*.apk'
+        
