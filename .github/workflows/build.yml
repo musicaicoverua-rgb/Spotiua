@@ -23,150 +23,34 @@ jobs:
         flutter-version: '3.16.0'
         channel: 'stable'
 
-    - name: STEP 1 - Unpack & Sterilize
+    - name: STEP 1 - Unpack Kimi's Project
       run: |
-        # Розпаковуємо ваш архів
+        # Розпаковуємо архів
         unzip -q -o "Kimi_Agent_OpenWave Complete Code.zip"
         
-        # Створюємо чистий проект Flutter для гарантії стабільності
-        flutter create --org com.openwave app
-        cd app
+        # Автоматично знаходимо папку, де лежить pubspec.yaml
+        FLUTTER_DIR=$(find . -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
+        echo "Знайдено проект Flutter у папці: $FLUTTER_DIR"
+        echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
+
+    - name: STEP 2 - Get Packages & Generate Code
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
         
-        # Очищуємо lib та створюємо структуру папок
-        rm -rf lib/*
-        mkdir -p lib/core/services lib/core/models lib/core/theme lib/core/router lib/core/di
-        mkdir -p lib/features/admin/presentation/screens
-        mkdir -p lib/features/player/presentation/screens
-        mkdir -p lib/features/auth/presentation/screens
-        mkdir -p assets/translations
-
-    - name: STEP 2 - Inject Credentials and Admin Logic
-      run: |
-        cd app
-        
-        # Оновлюємо pubspec.yaml (використовуємо ваш перевірений список)
-        cat << 'EOF' > pubspec.yaml
-        name: openwave
-        description: OpenWave - Music Streaming with Gamification
-        version: 1.0.0+1
-        environment:
-          sdk: '>=3.0.0 <4.0.0'
-        dependencies:
-          flutter: { sdk: flutter }
-          cupertino_icons: ^1.0.6
-          google_fonts: ^6.1.0
-          supabase_flutter: ^2.0.2
-          just_audio: ^0.9.36
-          just_audio_background: ^0.0.1-beta.10
-          easy_localization: ^3.0.3
-          file_picker: ^6.1.1
-          flutter_bloc: ^8.1.3
-          get_it: ^7.6.4
-          injectable: ^2.3.2
-          go_router: ^12.1.1
-          flutter_fortune_wheel: ^1.3.1
-        dev_dependencies:
-          flutter_test: { sdk: flutter }
-          build_runner: ^2.4.7
-          injectable_generator: ^2.4.1
-        flutter:
-          uses-material-design: true
-          assets: [ assets/translations/ ]
-        EOF
-
-        # Прописуємо ваші ключі та пошту адміна в main.dart
-        cat << 'EOF' > lib/main.dart
-        import 'package:flutter/material.dart';
-        import 'package:supabase_flutter/supabase_flutter.dart';
-        import 'package:easy_localization/easy_localization.dart';
-
-        void main() async {
-          WidgetsFlutterBinding.ensureInitialized();
-          await EasyLocalization.ensureInitialized();
-          
-          await Supabase.initialize(
-            url: 'https://nmowlkjoragnffkxbrzq.supabase.co',
-            anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tb3dsa2pvcmFnbmZma3hicnpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTYyNjcsImV4cCI6MjA4ODY3MjI2N30.yNHTyZfXOjy-lJNxCOm8F9_YVGWF6kGWmueFYBHTfI0',
-          );
-          
-          runApp(
-            EasyLocalization(
-              supportedLocales: const [Locale('uk'), Locale('en')],
-              path: 'assets/translations',
-              fallbackLocale: const Locale('uk'),
-              child: const OpenWaveApp(),
-            ),
-          );
-        }
-
-        class OpenWaveApp extends StatelessWidget {
-          const OpenWaveApp({super.key});
-
-          @override
-          Widget build(BuildContext context) {
-            final user = Supabase.instance.client.auth.currentUser;
-            final isAdmin = user?.email == 'andriimykolyshyn@gmail.com';
-
-            return MaterialApp(
-              debugShowCheckedModeBanner: false,
-              title: 'OpenWave',
-              home: Scaffold(
-                appBar: AppBar(
-                  title: Text(isAdmin ? "OpenWave ADMIN" : "OpenWave"),
-                  backgroundColor: isAdmin ? Colors.redAccent : Colors.blueAccent,
-                ),
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text("Вітаємо в OpenWave!", style: TextStyle(fontSize: 24)),
-                      if (isAdmin) Padding(
-                        padding: const EdgeInsets.all(20.0),
-                        child: Text("Ви авторизовані як Головний Адміністратор", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                      ),
-                      Text("Користувач: ${user?.email ?? 'Гість'}"),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-        }
-        EOF
-
-    - name: STEP 3 - Setup Translations
-      run: |
-        cd app/assets/translations
-        # Створюємо базові словники для 8 мов
-        for lang in uk en es ru de fr pl cs; do
-          echo '{"app_name":"OpenWave","welcome":"Welcome"}' > $lang.json
-        done
-
-    - name: STEP 4 - Android Permissions (Manifest)
-      run: |
-        cd app/android/app/src/main
-        cat << 'EOF' > AndroidManifest.xml
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-            <application android:label="OpenWave" android:icon="@mipmap/ic_launcher" android:usesCleartextTraffic="true">
-                <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true">
-                    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-                </activity>
-            </application>
-        </manifest>
-        EOF
-
-    - name: STEP 5 - Build Production APK
-      run: |
-        cd app
+        # Завантажуємо всі бібліотеки
         flutter pub get
-        # Збірка в режимі debug для спрощення першої інсталяції
+        
+        # Kimi використовує розумну архітектуру, яка потребує генерації коду. Запускаємо її:
+        flutter pub run build_runner build --delete-conflicting-outputs || true
+
+    - name: STEP 3 - Build Production APK
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
+        # Збираємо додаток
         flutter build apk --debug
 
-    - name: STEP 6 - Upload APK
+    - name: STEP 4 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-Cloud-Production
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: OpenWave-Full-App
+        path: "**/build/app/outputs/flutter-apk/*.apk"
