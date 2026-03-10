@@ -17,13 +17,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # THE GOLDEN FIX: Downgrading to stable 3.19.6
-    # This version perfectly bridges Kimi's older Gradle plugins 
-    # with the newer Dart 3.3 SDK requirements.
-    - name: Install Flutter (Stable 3.19.6)
+    # Using Flutter 3.22.0 to satisfy the Dart 3.4.0 requirement for drift_flutter
+    - name: Install Flutter (Stable 3.22.0)
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.19.6'
+        flutter-version: '3.22.0'
         channel: 'stable'
 
     - name: STEP 1 - Unpack Project
@@ -33,7 +31,21 @@ jobs:
         echo "Found Flutter project in directory: $FLUTTER_DIR"
         echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
 
-    - name: STEP 2 - Fix Kimi's Native Android Config
+    - name: STEP 2 - The Smart Dependency Override
+      run: |
+        cd ${{ env.FLUTTER_DIR }}
+        echo "Applying dependency overrides to resolve 'web' and 'intl' conflicts..."
+        
+        # We use overrides instead of upgrading plugins. 
+        # Upgrading plugins would break Kimi's native Android wrapper.
+        cat << 'EOF' >> pubspec.yaml
+        
+        dependency_overrides:
+          web: ^0.5.0
+          intl: ^0.19.0
+        EOF
+
+    - name: STEP 3 - Fix Kimi's Native Android Config
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
@@ -51,26 +63,22 @@ jobs:
         echo "flutter.minSdkVersion=24" >> android/local.properties
         echo "flutter.targetSdkVersion=34" >> android/local.properties
 
-    - name: STEP 3 - Resolve Dependencies & Generate Code
+    - name: STEP 4 - Pub Get & Generate Code
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        
-        echo "Setting flexible versions for minor conflicts..."
-        sed -i 's/intl:.*/intl: any/g' pubspec.yaml
-        sed -i 's/package_info_plus:.*/package_info_plus: any/g' pubspec.yaml
         
         echo "Downloading packages..."
         flutter pub get
         
-        echo "Running code generator for database..."
+        echo "Running code generator for database (Drift)..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 4 - Build Production APK
+    - name: STEP 5 - Build Production APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
         flutter build apk --debug
 
-    - name: STEP 5 - Upload APK
+    - name: STEP 6 - Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: OpenWave-App-Ready
