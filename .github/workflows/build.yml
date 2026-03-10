@@ -116,7 +116,7 @@ jobs:
 
     - name: The Kotlin Auto-Reorganizer & Type Synthesizer
       run: |
-        echo "Fixing structural errors, Parcelable bounds, and Type Mismatches..."
+        echo "Fixing structural errors, gluing fragmented files, and Type Mismatches..."
         python3 - <<'EOF'
         import os, re
 
@@ -130,23 +130,24 @@ jobs:
                 try:
                     with open(path, 'r', encoding='utf-8') as file: content = file.read()
 
-                    # 1. Extract markdown
+                    # 1. Safely extract AND GLUE ALL markdown blocks (Fixes missing commas/brackets)
                     b3 = chr(96) * 3
                     pattern = b3 + r'(?:kotlin|java|kt)?\n?(.*?)' + b3
                     blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-                    if blocks: content = max(blocks, key=len)
+                    if blocks: 
+                        content = '\n\n'.join(blocks) # GLUE ALL BLOCKS TOGETHER!
+                        
                     content = content.replace(b3, '')
                     content = re.sub(r'^(?:kotlin|java|kt)\b', '', content, flags=re.IGNORECASE).strip()
 
                     # 2. Fix Type Mismatches globally (Eradicate OfflineDownloadEntity)
-                    content = content.replace('OfflineDownloadEntity', 'OfflineDownload')
+                    content = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', content)
 
-                    # 3. Add @Parcelize and @Entity to OfflineDownload to fix bounds and Room errors
+                    # 3. Add @Parcelize and @Entity to OfflineDownload
                     if 'data class OfflineDownload' in content and 'Parcelable' not in content:
                         content = "import kotlinx.parcelize.Parcelize\nimport android.os.Parcelable\nimport androidx.room.Entity\nimport androidx.room.PrimaryKey\n" + content
                         content = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', content)
                         content = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', content)
-                        # Ensure it has a PrimaryKey
                         if '@PrimaryKey' not in content:
                             content = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', content, count=1)
 
@@ -155,7 +156,7 @@ jobs:
                     imports = set()
                     body_lines = []
 
-                    # Gather components
+                    # 4. Gather components
                     for line in lines:
                         stripped = line.strip()
                         if stripped.startswith('package '):
@@ -165,7 +166,12 @@ jobs:
                         else:
                             body_lines.append(line)
 
-                    # Strip AI conversational garbage from the top
+                    # Auto-inject Timber import if needed
+                    body_text = '\n'.join(body_lines)
+                    if 'Timber.' in body_text and 'import timber.log.Timber' not in '\n'.join(imports):
+                        imports.add('import timber.log.Timber')
+
+                    # 5. Strip AI conversational garbage from the top
                     start_idx = 0
                     for i, line in enumerate(body_lines):
                         stripped = line.strip()
@@ -177,7 +183,7 @@ jobs:
 
                     body_lines = body_lines[start_idx:]
 
-                    # Infer package if missing
+                    # 6. Infer package if missing
                     if not package_line:
                         pkg_path = ""
                         if 'java/' in path: pkg_path = path.split('java/')[1]
@@ -187,7 +193,7 @@ jobs:
                             pkg_name = pkg_dir.replace('/', '.').replace('\\', '.')
                             if pkg_name: package_line = f"package {pkg_name}"
 
-                    # Rebuild file strictly
+                    # 7. Rebuild file strictly
                     final_content = []
                     if package_line:
                         final_content.append(package_line)
