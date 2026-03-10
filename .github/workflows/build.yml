@@ -22,16 +22,22 @@ jobs:
       with:
         gradle-version: '8.4'
 
-    - name: STEP 1 - Extract and Clean
+    - name: STEP 1 - Unpack & Clean
       run: |
         unzip -q -o "Kimi_Agent_OpenWave Native Music App.zip"
-        sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' openwave/android/settings.gradle.kts
-        rm -rf openwave/android/app/src/main/java/*
-        mkdir -p openwave/android/app/src/main/java/com/openwave/app
+        # Знаходимо шлях до папки android
+        AND_DIR=$(find . -name "build.gradle.kts" | grep "android/app" | sed 's/\/app\/build.gradle.kts//')
+        echo "ANDROID_PROJECT_DIR=$AND_DIR" >> $GITHUB_ENV
+        # Очищаємо старий код
+        rm -rf $AND_DIR/app/src/main/java/*
+        mkdir -p $AND_DIR/app/src/main/java/com/openwave/app
 
-    - name: STEP 2 - Inject Dependencies
+    - name: STEP 2 - Inject Dependencies & Code
       run: |
-        cat << 'EOF' >> openwave/android/app/build.gradle.kts
+        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
+        # Налаштування Gradle
+        sed -i 's/FAIL_ON_PROJECT_REPOS/PREFER_SETTINGS/g' $AND_DIR/settings.gradle.kts || true
+        cat << 'EOF' >> $AND_DIR/app/build.gradle.kts
         dependencies {
             implementation("androidx.media3:media3-exoplayer:1.3.1")
             implementation("androidx.media3:media3-session:1.3.1")
@@ -44,9 +50,8 @@ jobs:
         }
         EOF
 
-    - name: STEP 3 - Generate Clean Code
-      run: |
-        cat << 'EOF' > openwave/android/app/src/main/java/com/openwave/app/MainActivity.kt
+        # Генерація MainActivity.kt
+        cat << 'EOF' > $AND_DIR/app/src/main/java/com/openwave/app/MainActivity.kt
         package com.openwave.app
         import android.net.Uri
         import android.os.Bundle
@@ -98,16 +103,16 @@ jobs:
             var show by remember { mutableStateOf(false) }
             val ctx = LocalContext.current
             Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("OpenWave Cloud", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+                Text("OpenWave Cloud ☁️", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(48.dp))
                 if (!show) {
-                    Button(onClick = onUsr, Modifier.fillMaxWidth().height(50.dp)) { Text("Увійти як Слухач") }
+                    Button(onClick = onUsr, Modifier.fillMaxWidth().height(50.dp)) { Text("Слухач") }
                     Spacer(Modifier.height(16.dp))
-                    TextButton(onClick = { show=true }) { Text("Я Адміністратор", color = MaterialTheme.colorScheme.secondary) }
+                    TextButton(onClick = { show=true }) { Text("Адміністратор", color = MaterialTheme.colorScheme.secondary) }
                 } else {
-                    OutlinedTextField(value = pass, onValueChange = { pass=it }, label = { Text("Пароль Адміна") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = pass, onValueChange = { pass=it }, label = { Text("Пароль") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = { if (pass=="admin777") onAdm() else Toast.makeText(ctx, "Помилка", Toast.LENGTH_SHORT).show() }, Modifier.fillMaxWidth().height(50.dp)) { Text("Увійти") }
+                    Button(onClick = { if (pass=="admin777") onAdm() else Toast.makeText(ctx, "Невірний пароль", Toast.LENGTH_SHORT).show() }, Modifier.fillMaxWidth().height(50.dp)) { Text("Увійти") }
                     TextButton(onClick = { show=false }) { Text("Назад") }
                 }
             }
@@ -152,19 +157,18 @@ jobs:
 
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text(if (isAdmin) "Адмін" else "Слухач", color = MaterialTheme.colorScheme.primary)
+                    Text(if (isAdmin) "Адмін 👑" else "Слухач 🎧", color = MaterialTheme.colorScheme.primary)
                     TextButton(onClick = { exo.stop(); onOut() }) { Text("Вихід", color = MaterialTheme.colorScheme.error) }
                 }
                 if (isAdmin) {
-                    Button(onClick = { pick.launch("audio/*") }, Modifier.fillMaxWidth(), enabled = !upld) { Text(if (upld) "Завантаження..." else "➕ Завантажити MP3") }
+                    Button(onClick = { pick.launch("audio/*") }, Modifier.fillMaxWidth(), enabled = !upld) { Text(if (upld) "Завантаження..." else "➕ Додати MP3") }
                 }
                 LazyColumn(Modifier.weight(1f)) {
                     items(trks) { t ->
                         Card(Modifier.fillMaxWidth().padding(4.dp).clickable {
                             trkName = t.title
                             exo.setMediaItem(MediaItem.fromUri(t.url))
-                            exo.prepare()
-                            exo.play()
+                            exo.prepare(); exo.play()
                         }) { Text(t.title, Modifier.padding(16.dp)) }
                     }
                 }
@@ -178,13 +182,16 @@ jobs:
         }
         EOF
 
-    - name: STEP 4 - Build APK
+    - name: STEP 3 - Build APK
       run: |
-        cd openwave/android
-        ./gradlew assembleDebug
+        AND_DIR=${{ env.ANDROID_PROJECT_DIR }}
+        cd $AND_DIR
+        # Надаємо права на запуск gradlew, якщо він є
+        GW=$(find . -name "gradlew")
+        if [ -n "$GW" ]; then chmod +x $GW; $GW assembleDebug; else gradle assembleDebug; fi
 
-    - name: STEP 5 - Upload APK
+    - name: STEP 4 - Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: OpenWave-CloudReady-APK
-        path: openwave/android/app/build/outputs/apk/debug/app-debug.apk
+        name: OpenWave-Cloud-APK
+        path: "**/build/outputs/apk/debug/*.apk"
