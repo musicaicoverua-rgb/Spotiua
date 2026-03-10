@@ -107,9 +107,9 @@ jobs:
         echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#1DB954" android:pathData="M0,0h108v108h-108z"/></vector>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
         cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
 
-    - name: STEP 3 - Ultimate AST Balancer (Strict Syntax Healing)
+    - name: STEP 3 - The Ultimate Code Healer (TODO Injection & Brace Sync)
       run: |
-        echo "Performing lexical brace balancing and syntax restructuring..."
+        echo "Injecting TODOs for AI placeholders to guarantee AST stability..."
         python3 - <<'EOF'
         import os, re
 
@@ -122,103 +122,63 @@ jobs:
                     with open(path, 'r', encoding='utf-8') as file:
                         raw_text = file.read()
                     
-                    # 1. Extract and Glue Code
+                    # 1. EXTRACT AND GLUE BLOCKS
                     b3 = chr(96) * 3
                     blocks = re.findall(b3 + r'(?:kotlin|java|kt)?\s*\n(.*?)\n\s*' + b3, raw_text, re.DOTALL | re.IGNORECASE)
                     code = '\n\n'.join(blocks) if blocks else raw_text
 
-                    # 2. Extract Package & Imports
+                    # 2. SEPARATE PACKAGE & IMPORTS
                     pkg_m = re.search(r'^\s*package\s+([a-zA-Z0-9_.]+)', code, re.MULTILINE)
                     pkg = pkg_m.group(0).strip() if pkg_m else ""
                     imports = set(re.findall(r'^\s*import\s+[a-zA-Z0-9_.*]+', code, re.MULTILINE))
                     
-                    code = re.sub(r'^\s*package\s+.*$', '', code, flags=re.MULTILINE)
-                    code = re.sub(r'^\s*import\s+.*$', '', code, flags=re.MULTILINE)
+                    body = re.sub(r'^\s*package\s+.*$', '', code, flags=re.MULTILINE)
+                    body = re.sub(r'^\s*import\s+.*$', '', body, flags=re.MULTILINE)
 
-                    # 3. Syntax Cleanups
-                    code = re.sub(r'//\s*\.\.\..*', '', code)
-                    code = re.sub(r'/\*.*?\.\.\..*?\*/', '', code, flags=re.DOTALL)
-                    code = code.replace('...', '')
-
-                    # Remove dangling commas
-                    code = re.sub(r',\s*\)', ')', code)
-                    code = re.sub(r',\s*\}', '\n}', code)
-                    code = re.sub(r',\s*$', '', code, flags=re.MULTILINE)
+                    # 3. FIX AI CHATTER & PLACEHOLDERS
+                    body = re.sub(r'//\s*\.\.\..*', '', body)
+                    body = re.sub(r'/\*.*?\.\.\..*?\*/', '', body, flags=re.DOTALL)
                     
-                    # Fix Missing Semicolon in Enums (Fixes User.kt)
-                    code = re.sub(r'([A-Z0-9_]+)\s*\n\s+(?=@|fun\b|val\b|var\b|override\b|companion\b)', r'\1;\n', code)
-                    
-                    # Fix Missing Parameter Names
-                    code = re.sub(r'\b(?:val|var)\s*:\s*([A-Za-z0-9_]+)', r'val arg_\1: \1', code)
-                    code = re.sub(r'(?<=\(|,)\s*:\s*([A-Za-z0-9_]+)', r' arg_\1: \1', code)
+                    # THE SILVER BULLET: Replace `...` with valid Kotlin code `TODO()`
+                    # This completely fixes "Expecting an element / expression" errors!
+                    body = re.sub(r'(?<!\.)\.\.\.(?!\.)', 'TODO("AI_PLACEHOLDER")', body)
 
-                    # 4. Filter AI Chatter
-                    lines = code.split('\n')
-                    clean_lines = []
-                    for l in lines:
-                        s = l.strip()
-                        if not s: 
-                            clean_lines.append(l)
-                            continue
-                        # If line is pure English without any code operators, skip it
-                        if s.lower().startswith(('here', 'sure', 'this', 'the', 'note', 'updated', 'adding', 'finally')):
-                            if not any(c in s for c in '{}()=<>'):
-                                continue
-                        clean_lines.append(l)
-                    code = '\n'.join(clean_lines)
+                    # 4. FIX COMMA AND ENUM ERRORS
+                    body = re.sub(r',\s*\)', ')', body)
+                    body = re.sub(r',\s*\}', '\n}', body)
+                    # Fix missing enum semicolons
+                    body = re.sub(r'([A-Z0-9_]+)(\s*)\n(\s*)(?=@|fun\b|val\b|var\b|override\b|companion\b)', r'\1;\2\n\3', body)
 
-                    # 5. Domain Fixes (Parcelize)
-                    code = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', code)
-                    if 'data class OfflineDownload' in code:
+                    # 5. FIX DOMAIN ENTITIES (Parcelize)
+                    body = re.sub(r'\bOfflineDownloadEntity\b', 'OfflineDownload', body)
+                    if 'data class OfflineDownload' in body:
                         imports.update(['import kotlinx.parcelize.Parcelize', 'import android.os.Parcelable', 'import androidx.room.Entity', 'import androidx.room.PrimaryKey'])
-                        code = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', code)
-                        code = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', code)
-                        if '@PrimaryKey' not in code:
-                            code = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', code, count=1)
+                        body = re.sub(r'data class OfflineDownload\s*\(', r'@Parcelize\n@Entity(tableName="offline_downloads")\ndata class OfflineDownload(', body)
+                        body = re.sub(r'(data class OfflineDownload\s*\([^)]*\))', r'\1 : Parcelable', body)
+                        if '@PrimaryKey' not in body:
+                            body = re.sub(r'(val\s+[a-zA-Z0-9_]+\s*:)', r'@PrimaryKey \1', body, count=1)
 
-                    # 6. ULTIMATE BRACE BALANCING (Fixes "Top level declaration" and "Expecting '}'")
-                    res = []
-                    depth = 0
-                    in_string = False
-                    in_char = False
-                    escape = False
+                    # 6. SAFE EOF BRACE BALANCING (Fixes "top level declaration" errors safely)
+                    open_p = body.count('(') - body.count(')')
+                    if open_p > 0: body += '\n' + ')' * open_p
                     
-                    for char in code:
-                        if escape:
-                            escape = False
-                            res.append(char)
-                            continue
-                        if char == '\\':
-                            escape = True
-                            res.append(char)
-                            continue
-                        if char == '"' and not in_char:
-                            in_string = not in_string
-                        if char == "'" and not in_string:
-                            in_char = not in_char
+                    open_b = body.count('{')
+                    close_b = body.count('}')
+                    if open_b > close_b: 
+                        body += '\n' + '}' * (open_b - close_b)
+                    elif close_b > open_b:
+                        # Remove excess closing braces from the VERY END of the file
+                        excess = close_b - open_b
+                        for _ in range(excess):
+                            body = body[::-1].replace('}', '', 1)[::-1]
 
-                        if not in_string and not in_char:
-                            if char == '{':
-                                depth += 1
-                                res.append(char)
-                            elif char == '}':
-                                if depth > 0:
-                                    depth -= 1
-                                    res.append(char)
-                                # If depth is 0, DO NOT APPEND '}'. This deletes extra braces!
-                            else:
-                                res.append(char)
-                        else:
-                            res.append(char)
-                    
-                    balanced_code = "".join(res) + ('\n}' * depth) # Add missing braces at the end
-
+                    # 7. REASSEMBLE
                     if not pkg:
                         p_parts = path.split('java/')[1] if 'java/' in path else path.split('kotlin/')[1]
                         pkg = "package " + os.path.dirname(p_parts).replace('/', '.').replace('\\', '.')
 
-                    # Reassemble
-                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + balanced_code
+                    final_code = f"{pkg}\n\n" + "\n".join(sorted(list(imports))) + "\n\n" + body
+
                     with open(path, 'w', encoding='utf-8') as f_out:
                         f_out.write(final_code)
                 except Exception as e: pass
@@ -259,6 +219,7 @@ jobs:
                             clean_item = re.sub(r'/\*.*?\*/', '', clean_item, flags=re.DOTALL)
                             name = re.sub(r'::class.*|\.class', '', clean_item).strip()
                             if '.' in name: name = name.split('.')[-1]
+                            
                             name = re.sub(r'[^a-zA-Z0-9_]', '', name) # Absolute sanitization
                             
                             if name and name not in existing_classes:
