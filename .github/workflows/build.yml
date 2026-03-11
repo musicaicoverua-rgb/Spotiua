@@ -162,64 +162,61 @@ jobs:
                                 matches = re.findall(r'class\s+([A-Za-z0-9_]+Bloc)\s+extends', txt)
                                 for b in matches:
                                     blocs.add(b)
-                                    rel_path = p.replace('\\', '/').replace('lib/', '')
-                                    imports.add(f"import 'package:openwave/{rel_path}';")
+                                    rel_path = p.replace('\\\\', '/').replace('lib/', '')
+                                    imports.add("import 'package:openwave/" + rel_path + "';")
                 
-                # Add imports
                 import_string = "import 'package:flutter_bloc/flutter_bloc.dart';\n"
                 for imp in imports:
-                    import_string += imp + "\n"
+                    if imp not in main_content:
+                        import_string += imp + "\n"
+                
                 main_content = import_string + main_content
                 
-                # Build providers list
-                prov_list = [f"BlocProvider<{b}>(create: (_) => getIt<{b}>())" for b in blocs]
-                prov_str = ",\n        ".join(prov_list)
+                prov_list = ["BlocProvider<" + b + ">(create: (_) => getIt<" + b + ">())" for b in blocs]
+                prov_str = ",\\n        ".join(prov_list)
                 
-                # Add Wrapper Class
-                wrapper_class = f"""
-class GlobalAppWrapper extends StatelessWidget {{
-  final Widget child;
-  const GlobalAppWrapper({{super.key, required this.child}});
-  @override
-  Widget build(BuildContext context) {{
-    return MultiBlocProvider(
-      providers: [
-        {prov_str}
-      ],
-      child: child,
-    );
-  }}
-}}
-"""
-                main_content += "\n" + wrapper_class
+                wrapper_class = (
+                    "\\nclass GlobalAppWrapper extends StatelessWidget {\\n"
+                    "  final Widget child;\\n"
+                    "  const GlobalAppWrapper({super.key, required this.child});\\n"
+                    "  @override\\n"
+                    "  Widget build(BuildContext context) {\\n"
+                    "    return MultiBlocProvider(\\n"
+                    "      providers: [\\n"
+                    "        " + prov_str + "\\n"
+                    "      ],\\n"
+                    "      child: child,\\n"
+                    "    );\\n"
+                    "  }\\n"
+                    "}\\n"
+                )
+                main_content += "\\n" + wrapper_class
                 
-                # Replace the exact child
                 main_content = re.sub(
                     r'child:\s*const\s+OpenWaveApp\(\)\s*,', 
                     'child: const GlobalAppWrapper(child: OpenWaveApp()),', 
                     main_content
                 )
                 
-                # Add visual crash shield
-                shield = """
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    return MaterialApp(
-      home: Scaffold(
-        backgroundColor: Colors.white,
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'CRASH:\\n${details.exception}\\n\\n${details.stack}', 
-              style: const TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-      ),
-    );
-  };
-"""
-                main_content = main_content.replace('WidgetsFlutterBinding.ensureInitialized();', 'WidgetsFlutterBinding.ensureInitialized();\n' + shield)
+                shield = (
+                    "  ErrorWidget.builder = (FlutterErrorDetails details) {\\n"
+                    "    return MaterialApp(\\n"
+                    "      home: Scaffold(\\n"
+                    "        backgroundColor: Colors.white,\\n"
+                    "        body: SafeArea(\\n"
+                    "          child: SingleChildScrollView(\\n"
+                    "            padding: const EdgeInsets.all(16),\\n"
+                    "            child: Text(\\n"
+                    "              'CRASH:\\\\n${details.exception}\\\\n\\\\n${details.stack}', \\n"
+                    "              style: const TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold),\\n"
+                    "            ),\\n"
+                    "          ),\\n"
+                    "        ),\\n"
+                    "      ),\\n"
+                    "    );\\n"
+                    "  };\\n"
+                )
+                main_content = main_content.replace('WidgetsFlutterBinding.ensureInitialized();', 'WidgetsFlutterBinding.ensureInitialized();\\n' + shield)
 
                 with open(main_path, 'w', encoding='utf-8') as f:
                     f.write(main_content)
