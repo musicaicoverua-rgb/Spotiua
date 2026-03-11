@@ -219,7 +219,88 @@ jobs:
                     if orig_content != content:
                         with open(filepath, 'w', encoding='utf-8') as file:
                             file.write(content)
-                        print(f"Patched {f} for AudioServiceActivity")
+
+        # 4. GLOBAL BLOC PROVIDER INJECTOR (Fixes "Provider not found" crashes)
+        blocs_to_provide = {}
+        locator_import = ""
+        full_project_text = ""
+        
+        for root, dirs, files in os.walk('lib'):
+            for f in files:
+                if f.endswith('.dart'):
+                    path = os.path.join(root, f).replace(os.sep, '/')
+                    with open(path, 'r', encoding='utf-8') as file:
+                        full_project_text += "\n" + file.read()
+                    if f in ['injection_container.dart', 'locator.dart', 'di.dart', 'dependency_injection.dart']:
+                        locator_import = f"import 'package:openwave/{path.replace('lib/', '')}';"
+        
+        for match in re.finditer(r'class\s+([A-Za-z0-9_]+Bloc)\s+extends', full_project_text):
+            b_name = match.group(1)
+            if b_name not in blocs_to_provide:
+                for root, dirs, files in os.walk('lib'):
+                    for f in files:
+                        if f.endswith('.dart'):
+                            p = os.path.join(root, f).replace(os.sep, '/')
+                            with open(p, 'r', encoding='utf-8') as file:
+                                if f"class {b_name} extends" in file.read():
+                                    blocs_to_provide[b_name] = {
+                                        'import': f"import 'package:openwave/{p.replace('lib/', '')}';",
+                                        'instantiation': f"{b_name}()"
+                                    }
+                                    break
+                                    
+        for b_name in blocs_to_provide.keys():
+            if re.search(r'register[A-Za-z]*<\s*' + b_name + r'\s*>', full_project_text):
+                di_call = "sl" if "sl.register" in full_project_text else "getIt" if "getIt.register" in full_project_text else "locator"
+                blocs_to_provide[b_name]['instantiation'] = f"{di_call}<{b_name}>()"
+            else:
+                match = re.search(r'=>\s*(' + b_name + r'\s*\([^)]*\))', full_project_text)
+                if match:
+                    blocs_to_provide[b_name]['instantiation'] = match.group(1)
+
+        main_path = 'lib/main.dart'
+        if os.path.exists(main_path):
+            with open(main_path, 'r', encoding='utf-8') as f:
+                main_content = f.read()
+                
+            imports_to_add = []
+            if 'flutter_bloc.dart' not in main_content:
+                imports_to_add.append("import 'package:flutter_bloc/flutter_bloc.dart';")
+            if locator_import and locator_import not in main_content:
+                imports_to_add.append(locator_import)
+                
+            providers_code = []
+            for b_name, data in blocs_to_provide.items():
+                if b_name not in main_content:
+                    if data['import'] not in main_content and data['import'] not in imports_to_add:
+                        imports_to_add.append(data['import'])
+                    providers_code.append(f"BlocProvider<{b_name}>(create: (_) => {data['instantiation']})")
+                    
+            if providers_code:
+                imports_str = '\n'.join(imports_to_add)
+                main_parts = main_content.split('Future<void> _originalMain() async {')
+                top_part = main_parts[0]
+                bottom_part = main_parts[1] if len(main_parts) > 1 else main_content
+                
+                top_part = imports_str + '\n' + top_part
+                
+                joined_providers = ",\n        ".join(providers_code)
+                if 'MultiBlocProvider' in bottom_part:
+                    bottom_part = re.sub(r'(providers\s*:\s*\[)', r'\1\n        ' + joined_providers + ',', bottom_part)
+                else:
+                    runapp_match = re.search(r'runApp\s*\(\s*(const\s+)?([A-Za-z0-9_]+\s*\([^)]*\))\s*\);', bottom_part)
+                    if runapp_match:
+                        inner = runapp_match.group(2)
+                        wrapped = f"runApp(MultiBlocProvider(providers: [\n        {joined_providers}\n      ], child: {inner}));"
+                        bottom_part = bottom_part[:runapp_match.start()] + wrapped + bottom_part[runapp_match.end():]
+                
+                if len(main_parts) > 1:
+                    main_content = top_part + 'Future<void> _originalMain() async {' + bottom_part
+                else:
+                    main_content = top_part + bottom_part
+                        
+            with open(main_path, 'w', encoding='utf-8') as f:
+                f.write(main_content)
         EOF
 
     - name: STEP 7 - Pub Get & Generate Code
