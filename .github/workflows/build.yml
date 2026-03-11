@@ -89,137 +89,123 @@ jobs:
         </resources>
         EOF
 
-    - name: STEP 6 - The AI Code Doctor (Syntax & Provider Injector)
+    - name: STEP 6 - Ultra Safe Python Doctor
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        python3 - <<'EOF'
+        python3 - << 'EOF'
         import os, re
         
         # 1. Fix Dart Syntax
-        def drift_delete_replacer(match):
-            table = match.group(1)
-            condition = match.group(2)
-            if 'Companion' in condition:
-                id_match = re.search(r'id:\s*Value\((.*?)\)', condition)
-                if id_match:
-                    return f"(delete({table})..where((tbl) => tbl.id.equals({id_match.group(1)}))).go();"
-            condition = condition.replace(f"{table}.", "tbl.")
-            return f"(delete({table})..where((tbl) => {condition})).go();"
+        def drift_rep(m):
+            t, c = m.group(1), m.group(2)
+            if 'Companion' in c:
+                id_m = re.search(r'id:\s*Value\((.*?)\)', c)
+                if id_m: return f"(delete({t})..where((tbl) => tbl.id.equals({id_m.group(1)}))).go();"
+            return f"(delete({t})..where((tbl) => {c.replace(t+'.', 'tbl.')})).go();"
         
-        for root, dirs, files in os.walk('lib'):
+        for root, _, files in os.walk('lib'):
             for f in files:
-                if f.endswith('.dart'):
-                    path = os.path.join(root, f)
-                    with open(path, 'r', encoding='utf-8') as file:
-                        content = file.read()
-                    
-                    orig_content = content
-                    content = re.sub(r'delete\(([a-zA-Z0-9_]+)\)\.delete\((.*?)\);', drift_delete_replacer, content, flags=re.DOTALL)
-                    content = content.replace('DatabaseConnection _openConnection()', 'QueryExecutor _openConnection()')
-                    content = content.replace('DatabaseConnection openConnection()', 'QueryExecutor openConnection()')
-                    content = content.replace("query = query.eq('genre', genre);", "// query = query.eq('genre', genre);")
-                    content = content.replace("query = query.or('title.ilike.%$searchQuery%,artist.ilike.%$searchQuery%');", "// query = query.or('title.ilike.%$searchQuery%,artist.ilike.%$searchQuery%');")
-                    content = content.replace(".or('and(sender_id.eq.${currentUser?.id},receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.${currentUser?.id})')", "")
-                    content = re.sub(r'native:\s*(?:const\s+)?DriftNativeOptions\s*\((?:[^)(]+|\([^)(]*\))*\)\s*,?', r'', content, flags=re.DOTALL)
-                    content = content.replace("enabled: !_isUploading,", "// enabled: !_isUploading,")
-                    content = content.replace("args: {", "namedArgs: {")
-                    content = content.replace("currentTrack: () => event.track", "currentTrack: event.track")
-                    content = content.replace("currentTrack: () => null", "currentTrack: null")
-                    
-                    if orig_content != content:
-                        with open(path, 'w', encoding='utf-8') as file:
-                            file.write(content)
-                            
-        # 2. Fix AudioServiceActivity
-        for root, dirs, files in os.walk('android/app/src/main'):
+                if not f.endswith('.dart'): continue
+                p = os.path.join(root, f)
+                with open(p, 'r', encoding='utf-8') as file:
+                    txt = file.read()
+                
+                orig = txt
+                txt = re.sub(r'delete\(([a-zA-Z0-9_]+)\)\.delete\((.*?)\);', drift_rep, txt, flags=re.DOTALL)
+                txt = txt.replace('DatabaseConnection _openConnection()', 'QueryExecutor _openConnection()')
+                txt = txt.replace('DatabaseConnection openConnection()', 'QueryExecutor openConnection()')
+                txt = txt.replace("query = query.eq('genre', genre);", "// eq")
+                txt = txt.replace("query = query.or('title.ilike.%$searchQuery%,artist.ilike.%$searchQuery%');", "// or")
+                txt = txt.replace(".or('and(sender_id.eq.${currentUser?.id},receiver_id.eq.$otherUserId),and(sender_id.eq.$otherUserId,receiver_id.eq.${currentUser?.id})')", "")
+                txt = re.sub(r'native:\s*(?:const\s+)?DriftNativeOptions\s*\((?:[^)(]+|\([^)(]*\))*\)\s*,?', '', txt, flags=re.DOTALL)
+                txt = txt.replace("enabled: !_isUploading,", "// disabled")
+                txt = txt.replace("args: {", "namedArgs: {")
+                txt = txt.replace("currentTrack: () => event.track", "currentTrack: event.track")
+                txt = txt.replace("currentTrack: () => null", "currentTrack: null")
+                
+                if orig != txt:
+                    with open(p, 'w', encoding='utf-8') as file:
+                        file.write(txt)
+        
+        # 2. Fix Android Background
+        for root, _, files in os.walk('android/app/src/main'):
             for f in files:
                 if f in ['MainActivity.kt', 'MainActivity.java']:
-                    filepath = os.path.join(root, f)
-                    with open(filepath, 'r', encoding='utf-8') as file:
-                        content = file.read()
-                    content = content.replace('io.flutter.embedding.android.FlutterActivity', 'com.ryanheise.audioservice.AudioServiceActivity')
-                    content = content.replace('class MainActivity: FlutterActivity', 'class MainActivity: AudioServiceActivity')
-                    content = content.replace('class MainActivity : FlutterActivity', 'class MainActivity : AudioServiceActivity')
-                    content = content.replace('extends FlutterActivity', 'extends AudioServiceActivity')
-                    with open(filepath, 'w', encoding='utf-8') as file:
-                        file.write(content)
-
-        # 3. SURGICAL BLOC INJECTOR FOR main.dart
-        main_path = 'lib/main.dart'
-        if os.path.exists(main_path):
-            with open(main_path, 'r', encoding='utf-8') as f:
-                main_content = f.read()
+                    p = os.path.join(root, f)
+                    with open(p, 'r', encoding='utf-8') as file:
+                        txt = file.read()
+                    txt = txt.replace('io.flutter.embedding.android.FlutterActivity', 'com.ryanheise.audioservice.AudioServiceActivity')
+                    txt = txt.replace('class MainActivity: FlutterActivity', 'class MainActivity: AudioServiceActivity')
+                    txt = txt.replace('class MainActivity : FlutterActivity', 'class MainActivity : AudioServiceActivity')
+                    txt = txt.replace('extends FlutterActivity', 'extends AudioServiceActivity')
+                    with open(p, 'w', encoding='utf-8') as file:
+                        file.write(txt)
+        
+        # 3. Inject Blocs Safely
+        main_p = 'lib/main.dart'
+        if os.path.exists(main_p):
+            with open(main_p, 'r', encoding='utf-8') as f:
+                mtxt = f.read()
                 
-            if "GlobalAppWrapper" not in main_content:
+            if 'GlobalAppWrapper' not in mtxt:
                 blocs = set()
                 imports = set()
-                for root, dirs, files in os.walk('lib'):
+                for root, _, files in os.walk('lib'):
                     for f in files:
-                        if f.endswith('.dart'):
-                            p = os.path.join(root, f)
-                            with open(p, 'r', encoding='utf-8') as f2:
-                                txt = f2.read()
-                                matches = re.findall(r'class\s+([A-Za-z0-9_]+Bloc)\s+extends', txt)
-                                for b in matches:
-                                    blocs.add(b)
-                                    rel_path = p.replace('\\\\', '/').replace('lib/', '')
-                                    imports.add("import 'package:openwave/" + rel_path + "';")
-                
-                import_string = "import 'package:flutter_bloc/flutter_bloc.dart';\n"
-                for imp in imports:
-                    if imp not in main_content:
-                        import_string += imp + "\n"
-                
-                main_content = import_string + main_content
-                
-                prov_list = ["BlocProvider<" + b + ">(create: (_) => getIt<" + b + ">())" for b in blocs]
-                prov_str = ",\\n        ".join(prov_list)
-                
-                wrapper_class = (
-                    "\\nclass GlobalAppWrapper extends StatelessWidget {\\n"
-                    "  final Widget child;\\n"
-                    "  const GlobalAppWrapper({super.key, required this.child});\\n"
-                    "  @override\\n"
-                    "  Widget build(BuildContext context) {\\n"
-                    "    return MultiBlocProvider(\\n"
-                    "      providers: [\\n"
-                    "        " + prov_str + "\\n"
-                    "      ],\\n"
-                    "      child: child,\\n"
-                    "    );\\n"
-                    "  }\\n"
-                    "}\\n"
-                )
-                main_content += "\\n" + wrapper_class
-                
-                main_content = re.sub(
-                    r'child:\s*const\s+OpenWaveApp\(\)\s*,', 
-                    'child: const GlobalAppWrapper(child: OpenWaveApp()),', 
-                    main_content
-                )
-                
-                shield = (
-                    "  ErrorWidget.builder = (FlutterErrorDetails details) {\\n"
-                    "    return MaterialApp(\\n"
-                    "      home: Scaffold(\\n"
-                    "        backgroundColor: Colors.white,\\n"
-                    "        body: SafeArea(\\n"
-                    "          child: SingleChildScrollView(\\n"
-                    "            padding: const EdgeInsets.all(16),\\n"
-                    "            child: Text(\\n"
-                    "              'CRASH:\\\\n${details.exception}\\\\n\\\\n${details.stack}', \\n"
-                    "              style: const TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold),\\n"
-                    "            ),\\n"
-                    "          ),\\n"
-                    "        ),\\n"
-                    "      ),\\n"
-                    "    );\\n"
-                    "  };\\n"
-                )
-                main_content = main_content.replace('WidgetsFlutterBinding.ensureInitialized();', 'WidgetsFlutterBinding.ensureInitialized();\\n' + shield)
-
-                with open(main_path, 'w', encoding='utf-8') as f:
-                    f.write(main_content)
+                        if not f.endswith('.dart'): continue
+                        p = os.path.join(root, f)
+                        with open(p, 'r', encoding='utf-8') as f2:
+                            for b in re.findall(r'class\s+([A-Za-z0-9_]+Bloc)\s+extends', f2.read()):
+                                blocs.add(b)
+                                imports.add(f"import 'package:openwave/{p.replace(os.sep, '/').replace('lib/', '')}';")
+        
+                istr = "import 'package:flutter_bloc/flutter_bloc.dart';\n"
+                for i in imports:
+                    if i not in mtxt: istr += i + "\n"
+                mtxt = istr + mtxt
+        
+                pstr = ",\n                ".join([f"BlocProvider<{b}>(create: (_) => getIt<{b}>())" for b in blocs])
+        
+                wrapper = f"""
+        class GlobalAppWrapper extends StatelessWidget {{
+          final Widget child;
+          const GlobalAppWrapper({{super.key, required this.child}});
+          @override
+          Widget build(BuildContext context) {{
+            return MultiBlocProvider(
+              providers: [
+                {pstr}
+              ],
+              child: child,
+            );
+          }}
+        }}
+        """
+                mtxt += "\n" + wrapper
+                mtxt = mtxt.replace("child: const OpenWaveApp(),", "child: const GlobalAppWrapper(child: OpenWaveApp()),")
+        
+                shield = """
+          ErrorWidget.builder = (FlutterErrorDetails details) {
+            return MaterialApp(
+              home: Scaffold(
+                backgroundColor: const Color(0xFFFFFFFF),
+                body: SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'CRASH:\\n' + details.exceptionAsString() + '\\n\\n' + (details.stack?.toString() ?? ''),
+                      style: const TextStyle(color: Color(0xFFFF0000), fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          };
+        """
+                mtxt = mtxt.replace("WidgetsFlutterBinding.ensureInitialized();", "WidgetsFlutterBinding.ensureInitialized();\n" + shield)
+        
+                with open(main_p, 'w', encoding='utf-8') as f:
+                    f.write(mtxt)
         EOF
 
     - name: STEP 7 - Pub Get & Generate Code
