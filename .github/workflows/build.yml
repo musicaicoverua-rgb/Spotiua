@@ -52,72 +52,69 @@ jobs:
         echo "android.useAndroidX=true" >> android/gradle.properties
         echo "android.enableJetifier=true" >> android/gradle.properties
         
-        # INCREASE JAVA HEAP SPACE TO 4GB TO PREVENT OUT-OF-MEMORY ERRORS
+        # INCREASE JAVA HEAP SPACE
         echo "org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=1G" >> android/gradle.properties
         
         echo "flutter.compileSdkVersion=35" >> android/local.properties
         echo "flutter.minSdkVersion=24" >> android/local.properties
         echo "flutter.targetSdkVersion=35" >> android/local.properties
 
-    - name: STEP 4 - The Asset Generator (Fixing Missing Flutter Assets)
+    - name: STEP 4 - Asset Generator (Translations & Permissions)
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Creating mock assets to satisfy pubspec.yaml requirements..."
+        echo "Creating mock assets and translations to satisfy pubspec.yaml..."
         
-        mkdir -p assets/images
-        mkdir -p assets/animations
-        mkdir -p assets/icons
-        mkdir -p assets/fonts
+        mkdir -p assets/images assets/animations assets/icons assets/fonts
+        mkdir -p assets/translations assets/langs
         
-        touch assets/images/logo.png
-        touch assets/images/default_cover.png
-        
+        touch assets/images/logo.png assets/images/default_cover.png
         echo "{}" > assets/animations/loading.json
         echo "{}" > assets/animations/success.json
         echo "{}" > assets/animations/confetti.json
+        touch assets/fonts/Inter-Regular.ttf assets/fonts/Inter-Medium.ttf assets/fonts/Inter-SemiBold.ttf assets/fonts/Inter-Bold.ttf
         
-        touch assets/fonts/Inter-Regular.ttf
-        touch assets/fonts/Inter-Medium.ttf
-        touch assets/fonts/Inter-SemiBold.ttf
-        touch assets/fonts/Inter-Bold.ttf
+        # Generate translation JSONs for all 8 languages to prevent startup crashes
+        for lang in uk en es ru de fr pl cs; do
+          echo "{}" > assets/translations/$lang.json
+          echo "{}" > assets/langs/$lang.json
+        done
         
-        echo "Asset directories and dummy files created successfully."
+        # Inject INTERNET permission if Kimi forgot it
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        if ! grep -q "android.permission.INTERNET" $MANIFEST; then
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' $MANIFEST
+        fi
 
     - name: STEP 5 - Inject Missing Android Native Resources
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Injecting missing Android native icons and themes expected by Manifest..."
-        
         RES_DIR="android/app/src/main/res"
         mkdir -p $RES_DIR/mipmap-xxhdpi
         mkdir -p $RES_DIR/values
         
-        # Create a valid 1x1 transparent PNG using Base64 so AAPT2 doesn't crash
+        # Base64 transparent PNG
         echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" | base64 -d > $RES_DIR/mipmap-xxhdpi/ic_launcher.png
         cp $RES_DIR/mipmap-xxhdpi/ic_launcher.png $RES_DIR/mipmap-xxhdpi/ic_launcher_round.png
         
-        # Create the missing LaunchTheme and NormalTheme
         cat << 'EOF' > $RES_DIR/values/styles.xml
         <?xml version="1.0" encoding="utf-8"?>
         <resources>
             <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                <item name="android:windowBackground">@android:color/white</item>
+                <item name="android:windowBackground">@android:color/black</item>
             </style>
             <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-                <item name="android:windowBackground">@android:color/white</item>
+                <item name="android:windowBackground">@android:color/black</item>
             </style>
         </resources>
         EOF
-        
-        echo "Native Android resources injected successfully."
 
-    - name: STEP 6 - The AI Code Doctor
+    - name: STEP 6 - The AI Code Doctor & Startup Crash Shield
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        echo "Healing Kimi's AI hallucinations in Dart syntax..."
         python3 - <<'EOF'
         import os, re
         
+        # 1. Fix Database and Supabase syntax
         def drift_delete_replacer(match):
             table = match.group(1)
             condition = match.group(2)
@@ -136,7 +133,6 @@ jobs:
                         content = file.read()
                     
                     orig_content = content
-                    
                     content = re.sub(r'delete\(([a-zA-Z0-9_]+)\)\.delete\((.*?)\);', drift_delete_replacer, content, flags=re.DOTALL)
                     content = content.replace('DatabaseConnection _openConnection()', 'QueryExecutor _openConnection()')
                     content = content.replace('DatabaseConnection openConnection()', 'QueryExecutor openConnection()')
@@ -152,23 +148,73 @@ jobs:
                     if orig_content != content:
                         with open(path, 'w', encoding='utf-8') as file:
                             file.write(content)
-                        print(f"Healed syntax in {f}")
+        
+        # 2. INJECT STARTUP CRASH SHIELD INTO main.dart
+        main_path = 'lib/main.dart'
+        if os.path.exists(main_path):
+            with open(main_path, 'r', encoding='utf-8') as f:
+                main_content = f.read()
+            
+            match = re.search(r'(Future<void>\s+main\s*\(\)\s*async\s*\{|void\s+main\s*\(\)\s*(?:async)?\s*\{)(.*)', main_content, re.DOTALL)
+            if match and '_originalMain' not in main_content:
+                signature = match.group(1)
+                body = match.group(2)
+                
+                injection = """
+        import 'package:flutter/material.dart';
+
+        void main() async {
+          WidgetsFlutterBinding.ensureInitialized();
+          
+          ErrorWidget.builder = (FlutterErrorDetails details) {
+            return Material(
+              color: Colors.black,
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  child: Text('WIDGET CRASH:\\n${details.exception}\\n\\n${details.stack}', style: const TextStyle(color: Colors.orange, fontSize: 12)),
+                ),
+              ),
+            );
+          };
+
+          try {
+            await _originalMain();
+          } catch (e, stack) {
+            runApp(MaterialApp(
+              home: Scaffold(
+                backgroundColor: Colors.black,
+                body: SafeArea(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text('STARTUP CRASH:\\n$e\\n\\nSTACKTRACE:\\n$stack', style: const TextStyle(color: Colors.redAccent, fontSize: 14)),
+                    ),
+                  ),
+                ),
+              ),
+            ));
+          }
+        }
+
+        Future<void> _originalMain() async {
+        """
+                main_content = main_content[:match.start()] + injection + body
+                with open(main_path, 'w', encoding='utf-8') as f:
+                    f.write(main_content)
+                print("Injected Crash Shield into main.dart")
         EOF
 
     - name: STEP 7 - Pub Get & Generate Code
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        
-        echo "Downloading packages..."
         flutter pub get
-        
-        echo "Running code generator for database (Drift)..."
         dart run build_runner build --delete-conflicting-outputs || true
 
-    - name: STEP 8 - Build Production APK
+    # CHANGED TO RELEASE BUILD: Faster, optimized, no waiting for debugger
+    - name: STEP 8 - Build RELEASE APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        flutter build apk --debug
+        flutter build apk --release
 
     - name: STEP 9 - Upload APK
       uses: actions/upload-artifact@v4
