@@ -220,7 +220,7 @@ jobs:
                         with open(filepath, 'w', encoding='utf-8') as file:
                             file.write(content)
 
-        # 4. GLOBAL BLOC PROVIDER INJECTOR (Fixes "Provider not found" crashes)
+        # 4. ROBUST GLOBAL BLOC PROVIDER INJECTOR
         blocs_to_provide = {}
         locator_import = ""
         full_project_text = ""
@@ -271,10 +271,12 @@ jobs:
                 
             providers_code = []
             for b_name, data in blocs_to_provide.items():
-                if b_name not in main_content:
+                inst = data['instantiation']
+                # Check explicitly if it's already provided anywhere in main
+                if f"create: (_) => {inst}" not in main_content.replace(' ', ''):
                     if data['import'] not in main_content and data['import'] not in imports_to_add:
                         imports_to_add.append(data['import'])
-                    providers_code.append(f"BlocProvider<{b_name}>(create: (_) => {data['instantiation']})")
+                    providers_code.append(f"BlocProvider<{b_name}>(create: (_) => {inst})")
                     
             if providers_code:
                 imports_str = '\n'.join(imports_to_add)
@@ -283,16 +285,42 @@ jobs:
                 bottom_part = main_parts[1] if len(main_parts) > 1 else main_content
                 
                 top_part = imports_str + '\n' + top_part
-                
                 joined_providers = ",\n        ".join(providers_code)
-                if 'MultiBlocProvider' in bottom_part:
-                    bottom_part = re.sub(r'(providers\s*:\s*\[)', r'\1\n        ' + joined_providers + ',', bottom_part)
-                else:
-                    runapp_match = re.search(r'runApp\s*\(\s*(const\s+)?([A-Za-z0-9_]+\s*\([^)]*\))\s*\);', bottom_part)
-                    if runapp_match:
-                        inner = runapp_match.group(2)
-                        wrapped = f"runApp(MultiBlocProvider(providers: [\n        {joined_providers}\n      ], child: {inner}));"
-                        bottom_part = bottom_part[:runapp_match.start()] + wrapped + bottom_part[runapp_match.end():]
+                
+                wrapper_code = f"""
+class GlobalAppWrapper extends StatelessWidget {{
+  final Widget child;
+  const GlobalAppWrapper({{Key? key, required this.child}}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {{
+    return MultiBlocProvider(
+      providers: [
+        {joined_providers}
+      ],
+      child: child,
+    );
+  }}
+}}
+"""
+                bottom_part += "\n" + wrapper_code
+                
+                # Replace the exact runApp call inside _originalMain safely
+                idx = bottom_part.find('runApp(')
+                if idx != -1:
+                    open_parens = 0
+                    end_idx = -1
+                    for i in range(idx + 6, len(bottom_part)):
+                        if bottom_part[i] == '(':
+                            open_parens += 1
+                        elif bottom_part[i] == ')':
+                            open_parens -= 1
+                            if open_parens == 0:
+                                end_idx = i
+                                break
+                    if end_idx != -1:
+                        inner_widget = bottom_part[idx+7:end_idx]
+                        new_runapp = f"runApp(GlobalAppWrapper(child: {inner_widget}))"
+                        bottom_part = bottom_part[:idx] + new_runapp + bottom_part[end_idx+1:]
                 
                 if len(main_parts) > 1:
                     main_content = top_part + 'Future<void> _originalMain() async {' + bottom_part
