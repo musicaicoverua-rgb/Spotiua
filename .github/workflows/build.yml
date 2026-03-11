@@ -42,7 +42,7 @@ jobs:
           intl: ^0.19.0
         EOF
 
-    - name: STEP 3 - Fix Kimi's Native Android Config
+    - name: STEP 3 - Fix Kimi's Native Android Config & Boost RAM
       run: |
         cd ${{ env.FLUTTER_DIR }}
         
@@ -51,6 +51,9 @@ jobs:
         echo "kotlin_version=1.9.0" >> android/gradle.properties
         echo "android.useAndroidX=true" >> android/gradle.properties
         echo "android.enableJetifier=true" >> android/gradle.properties
+        
+        # INCREASE JAVA HEAP SPACE TO 4GB TO PREVENT OUT-OF-MEMORY ERRORS
+        echo "org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=1G" >> android/gradle.properties
         
         echo "flutter.compileSdkVersion=35" >> android/local.properties
         echo "flutter.minSdkVersion=24" >> android/local.properties
