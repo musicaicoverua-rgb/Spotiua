@@ -27,7 +27,6 @@ jobs:
       run: |
         unzip -q -o "Kimi_Agent_OpenWave Complete Code.zip"
         FLUTTER_DIR=$(find . -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
-        echo "Found Flutter project in directory: $FLUTTER_DIR"
         echo "FLUTTER_DIR=$FLUTTER_DIR" >> $GITHUB_ENV
 
     - name: STEP 2 - The Smart Dependency Override
@@ -90,13 +89,13 @@ jobs:
         </resources>
         EOF
 
-    - name: STEP 6 - Safe AI Code Doctor (Fix Syntax & App Logic)
+    - name: STEP 6 - The AI Code Doctor (Syntax & Provider Injector)
       run: |
         cd ${{ env.FLUTTER_DIR }}
-        
-        # 1. Database & UI Syntax Fixer
-        cat << 'EOF' > fix_syntax.py
+        python3 - <<'EOF'
         import os, re
+        
+        # 1. Fix Dart Syntax
         def drift_delete_replacer(match):
             table = match.group(1)
             condition = match.group(2)
@@ -106,7 +105,7 @@ jobs:
                     return f"(delete({table})..where((tbl) => tbl.id.equals({id_match.group(1)}))).go();"
             condition = condition.replace(f"{table}.", "tbl.")
             return f"(delete({table})..where((tbl) => {condition})).go();"
-
+        
         for root, dirs, files in os.walk('lib'):
             for f in files:
                 if f.endswith('.dart'):
@@ -130,103 +129,101 @@ jobs:
                     if orig_content != content:
                         with open(path, 'w', encoding='utf-8') as file:
                             file.write(content)
-        EOF
-        python3 fix_syntax.py
-        
-        # 2. Native Background Audio Fixer
-        cat << 'EOF' > fix_android.py
-        import os
+                            
+        # 2. Fix AudioServiceActivity
         for root, dirs, files in os.walk('android/app/src/main'):
             for f in files:
                 if f in ['MainActivity.kt', 'MainActivity.java']:
                     filepath = os.path.join(root, f)
                     with open(filepath, 'r', encoding='utf-8') as file:
                         content = file.read()
-                    
                     content = content.replace('io.flutter.embedding.android.FlutterActivity', 'com.ryanheise.audioservice.AudioServiceActivity')
                     content = content.replace('class MainActivity: FlutterActivity', 'class MainActivity: AudioServiceActivity')
                     content = content.replace('class MainActivity : FlutterActivity', 'class MainActivity : AudioServiceActivity')
                     content = content.replace('extends FlutterActivity', 'extends AudioServiceActivity')
-                    
                     with open(filepath, 'w', encoding='utf-8') as file:
                         file.write(content)
-        EOF
-        python3 fix_android.py
-        
-        # 3. The Ultimate Bloc Provider Injector
-        cat << 'EOF' > fix_main.py
-        import os, re
-        
+
+        # 3. SURGICAL BLOC INJECTOR FOR main.dart
         main_path = 'lib/main.dart'
-        if not os.path.exists(main_path):
-            exit(0)
-            
-        with open(main_path, 'r', encoding='utf-8') as f:
-            main_text = f.read()
-            
-        if "GlobalAppWrapper" not in main_text:
-            bloc_imports = set()
-            bloc_classes = set()
-            
-            # Find all Blocs in the app
-            for root, dirs, files in os.walk('lib'):
-                for file in files:
-                    if file.endswith('.dart'):
-                        filepath = os.path.join(root, file)
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            matches = re.findall(r'class\s+([A-Za-z0-9_]+Bloc)\s+extends', content)
-                            if matches:
-                                for match in matches:
-                                    bloc_classes.add(match)
-                                    import_path = filepath.replace('lib/', 'package:openwave/').replace('\\\\', '/')
-                                    bloc_imports.add(f"import '{import_path}';")
-            
-            imports_str = "\n".join(bloc_imports)
-            main_text = "import 'package:flutter_bloc/flutter_bloc.dart';\n" + imports_str + "\n" + main_text
-            
-            # Create Providers
-            providers_code = [f"BlocProvider<{bloc}>(create: (_) => getIt<{bloc}>())" for bloc in bloc_classes]
-            providers_str = ",\n                ".join(providers_code)
-            
-            wrapper_class = f"""
-        class GlobalAppWrapper extends StatelessWidget {{
-          const GlobalAppWrapper({{super.key}});
-          @override
-          Widget build(BuildContext context) {{
-            return MultiBlocProvider(
-              providers: [
-                {providers_str}
-              ],
-              child: const OpenWaveApp(),
-            );
-          }}
-        }}
-        """
-            main_text = main_text + "\n" + wrapper_class
-            
-            # Precisely wrap the app exactly where it is in Kimi's code
-            main_text = main_text.replace("child: const OpenWaveApp(),", "child: const GlobalAppWrapper(),")
-            
-            # Inject minimal safe crash shield
-            shield = """
-          ErrorWidget.builder = (FlutterErrorDetails details) {
-            return Material(
-              color: const Color(0xFF000000),
-              child: SafeArea(
-                child: SingleChildScrollView(
-                  child: Text('CRASH:\\n${details.exception}\\n\\n${details.stack}', style: const TextStyle(color: Color(0xFFFFA500), fontSize: 12)),
-                ),
-              ),
-            );
-          };
-        """
-            main_text = main_text.replace('WidgetsFlutterBinding.ensureInitialized();', 'WidgetsFlutterBinding.ensureInitialized();\n' + shield)
-            
-            with open(main_path, 'w', encoding='utf-8') as f:
-                f.write(main_text)
+        if os.path.exists(main_path):
+            with open(main_path, 'r', encoding='utf-8') as f:
+                main_content = f.read()
+                
+            if "GlobalAppWrapper" not in main_content:
+                blocs = set()
+                imports = set()
+                for root, dirs, files in os.walk('lib'):
+                    for f in files:
+                        if f.endswith('.dart'):
+                            p = os.path.join(root, f)
+                            with open(p, 'r', encoding='utf-8') as f2:
+                                txt = f2.read()
+                                matches = re.findall(r'class\s+([A-Za-z0-9_]+Bloc)\s+extends', txt)
+                                for b in matches:
+                                    blocs.add(b)
+                                    rel_path = p.replace('\\', '/').replace('lib/', '')
+                                    imports.add(f"import 'package:openwave/{rel_path}';")
+                
+                # Add imports
+                import_string = "import 'package:flutter_bloc/flutter_bloc.dart';\n"
+                for imp in imports:
+                    import_string += imp + "\n"
+                main_content = import_string + main_content
+                
+                # Build providers list
+                prov_list = [f"BlocProvider<{b}>(create: (_) => getIt<{b}>())" for b in blocs]
+                prov_str = ",\n        ".join(prov_list)
+                
+                # Add Wrapper Class
+                wrapper_class = f"""
+class GlobalAppWrapper extends StatelessWidget {{
+  final Widget child;
+  const GlobalAppWrapper({{super.key, required this.child}});
+  @override
+  Widget build(BuildContext context) {{
+    return MultiBlocProvider(
+      providers: [
+        {prov_str}
+      ],
+      child: child,
+    );
+  }}
+}}
+"""
+                main_content += "\n" + wrapper_class
+                
+                # Replace the exact child
+                main_content = re.sub(
+                    r'child:\s*const\s+OpenWaveApp\(\)\s*,', 
+                    'child: const GlobalAppWrapper(child: OpenWaveApp()),', 
+                    main_content
+                )
+                
+                # Add visual crash shield
+                shield = """
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return MaterialApp(
+      home: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'CRASH:\\n${details.exception}\\n\\n${details.stack}', 
+              style: const TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+"""
+                main_content = main_content.replace('WidgetsFlutterBinding.ensureInitialized();', 'WidgetsFlutterBinding.ensureInitialized();\n' + shield)
+
+                with open(main_path, 'w', encoding='utf-8') as f:
+                    f.write(main_content)
         EOF
-        python3 fix_main.py
 
     - name: STEP 7 - Pub Get & Generate Code
       run: |
