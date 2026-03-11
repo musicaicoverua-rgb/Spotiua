@@ -59,7 +59,7 @@ jobs:
         echo "flutter.minSdkVersion=24" >> android/local.properties
         echo "flutter.targetSdkVersion=35" >> android/local.properties
 
-    - name: STEP 4 - Asset Generator (Translations & Permissions)
+    - name: STEP 4 - Asset Generator & Background Permissions
       run: |
         cd ${{ env.FLUTTER_DIR }}
         echo "Creating mock assets and translations to satisfy pubspec.yaml..."
@@ -73,17 +73,18 @@ jobs:
         echo "{}" > assets/animations/confetti.json
         touch assets/fonts/Inter-Regular.ttf assets/fonts/Inter-Medium.ttf assets/fonts/Inter-SemiBold.ttf assets/fonts/Inter-Bold.ttf
         
-        # Generate translation JSONs for all 8 languages to prevent startup crashes
         for lang in uk en es ru de fr pl cs; do
           echo "{}" > assets/translations/$lang.json
           echo "{}" > assets/langs/$lang.json
         done
         
-        # Inject INTERNET permission if Kimi forgot it
+        # Inject required permissions for Background Audio & Internet
         MANIFEST="android/app/src/main/AndroidManifest.xml"
-        if ! grep -q "android.permission.INTERNET" $MANIFEST; then
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' $MANIFEST
-        fi
+        for perm in "INTERNET" "WAKE_LOCK" "FOREGROUND_SERVICE" "FOREGROUND_SERVICE_MEDIA_PLAYBACK"; do
+          if ! grep -q "android.permission.$perm" $MANIFEST; then
+            sed -i "/<application/i \    <uses-permission android:name=\"android.permission.$perm\" />" $MANIFEST
+          fi
+        done
 
     - name: STEP 5 - Inject Missing Android Native Resources
       run: |
@@ -92,7 +93,6 @@ jobs:
         mkdir -p $RES_DIR/mipmap-xxhdpi
         mkdir -p $RES_DIR/values
         
-        # Base64 transparent PNG
         echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" | base64 -d > $RES_DIR/mipmap-xxhdpi/ic_launcher.png
         cp $RES_DIR/mipmap-xxhdpi/ic_launcher.png $RES_DIR/mipmap-xxhdpi/ic_launcher_round.png
         
@@ -201,7 +201,25 @@ jobs:
                 main_content = main_content[:match.start()] + injection + body
                 with open(main_path, 'w', encoding='utf-8') as f:
                     f.write(main_content)
-                print("Injected Crash Shield into main.dart")
+        
+        # 3. FIX JUST_AUDIO_BACKGROUND NATIVE ACTIVITY
+        for root, dirs, files in os.walk('android/app/src/main'):
+            for f in files:
+                if f in ['MainActivity.kt', 'MainActivity.java']:
+                    filepath = os.path.join(root, f)
+                    with open(filepath, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                    
+                    orig_content = content
+                    content = content.replace('io.flutter.embedding.android.FlutterActivity', 'com.ryanheise.audioservice.AudioServiceActivity')
+                    content = content.replace('class MainActivity: FlutterActivity', 'class MainActivity: AudioServiceActivity')
+                    content = content.replace('class MainActivity : FlutterActivity', 'class MainActivity : AudioServiceActivity')
+                    content = content.replace('extends FlutterActivity', 'extends AudioServiceActivity')
+                    
+                    if orig_content != content:
+                        with open(filepath, 'w', encoding='utf-8') as file:
+                            file.write(content)
+                        print(f"Patched {f} for AudioServiceActivity")
         EOF
 
     - name: STEP 7 - Pub Get & Generate Code
@@ -210,7 +228,6 @@ jobs:
         flutter pub get
         dart run build_runner build --delete-conflicting-outputs || true
 
-    # CHANGED TO RELEASE BUILD: Faster, optimized, no waiting for debugger
     - name: STEP 8 - Build RELEASE APK
       run: |
         cd ${{ env.FLUTTER_DIR }}
